@@ -1,25 +1,39 @@
 #include "sio_request_body.hpp"
 
-BodyFile::BodyFile() {}
+#include <cstdlib>
+#include <cstring>
+
+// ---------------------------------------------------------------- BodyFile --
+
+BodyFile::BodyFile() : _file(nullptr) {}
+
 BodyFile::~BodyFile() {
-	(_file) && (fclose(_file));
+	if (_file) {
+		fclose(_file);
+		_file = nullptr;
+	}
 }
 
 void BodyFile::addFile(FILE *file, const string &filename) {
 	_file = file;
 	_filename = filename;
 }
+
 void BodyFile::addHeader(const string &key, const string &value) {
 	_headers.add(key, value);
 }
-void BodyFile::write(stringstream &ss) {
-	fwrite(ss.str().c_str(), 1, ss.str().size(), _file);
-	ss.clear();
-	ss.str("");
-	fflush(_file);
+
+void BodyFile::write(const char *data, size_t len) {
+	if (!_file || !len) return;
+	fwrite(data, 1, len, _file);
 }
+
 FILE *BodyFile::getFile() {
 	return _file;
+}
+
+string BodyFile::getFilename() const {
+	return _filename;
 }
 
 string BodyFile::extractFilename() {
@@ -30,28 +44,44 @@ string BodyFile::extractFilename() {
 	if (idx == string::npos)
 		return "";
 	value = value.substr(idx + 9);
+	size_t semi = value.find(';');
+	if (semi != string::npos)
+		value = value.substr(0, semi);
 	trim(value, " \"");
 	return value;
 }
 
-string BodyFile::getFilename() const {
-	return _filename;
-}
+// -------------------------------------------------------------------- Body --
 
-Body::Body() {
-	_bodyState = BODY_INIT;
-	_readingState = START_BODY;
-	_content = 0;
-	_contentLength = 0;
-	_chunkedLength = 0;
-	_bodyFile = nullptr;
-	_filename = "";
-	_multipartState = MULTIPART_INIT_BOUNDARY;
-	_fileIndex = 0;
-}
+Body::Body()
+	: _bodyFile(nullptr),
+	  _bodyState(BODY_INIT),
+	  _contentLength(0),
+	  _written(0),
+	  _chunkPhase(CHUNK_SIZE_LINE),
+	  _chunkSize(0),
+	  _chunkRemaining(0),
+	  _mpPhase(MP_PREAMBLE),
+	  _fileIndex(0),
+	  _partFileOpen(false) {}
 
-Body::Body(const Body &copy) {
-	*this = copy;
+// Body holds self-referential state (a StreamSearch that points into this
+// instance). Default copies would dangle, so copy operations are no-ops:
+// container slots end up holding fresh, default-constructed Bodies, and the
+// real state is populated later during request parsing.
+Body::Body(const Body &copy)
+	: StreamSearch::Sink(copy),
+	  _bodyFile(nullptr),
+	  _bodyState(BODY_INIT),
+	  _contentLength(0),
+	  _written(0),
+	  _chunkPhase(CHUNK_SIZE_LINE),
+	  _chunkSize(0),
+	  _chunkRemaining(0),
+	  _mpPhase(MP_PREAMBLE),
+	  _fileIndex(0),
+	  _partFileOpen(false) {
+	(void)copy;
 }
 
 Body &Body::operator=(const Body &rhs) {
@@ -59,145 +89,16 @@ Body &Body::operator=(const Body &rhs) {
 	return *this;
 }
 
-void Body::setState(const int &state) {
+Body::~Body() {
+	closeFile();
+}
+
+short Body::getState() const {
+	return _bodyState;
+}
+
+void Body::setState(int state) {
 	_bodyState = state;
-}
-
-void Body::chooseState(Header &headers) {
-	string value = headers.get("Transfer-Encoding");
-	if (!value.empty()) {
-		stringstream ss(value);
-		string       part;
-
-		while (getline(ss, part, ',')) {
-			trim(part);
-			if (iequalString(part, "Chunked"))
-				return setState(BODY_OPEN | CHUNKED_BODY);
-		}
-	}
-	if (!(value = headers.get("Content-Length")).empty()) {
-		trim(value);
-		if (value.length() > 0 && value[0] >= '1' && value[0] <= '9' && every(value, ::isdigit))
-			_contentLength = atoi(value.c_str());
-	}
-	value = headers.get("Content-Type");
-	_boundary = Boundary(value);
-	if (_boundary.valid())
-		return setState(BODY_OPEN | MULTIPARTED_BODY);
-	else if (_contentLength > 0)
-		setState(BODY_OPEN | LENGTHED_BODY);
-	else
-		setState(BODY_OPEN | BODY_DONE);
-}
-
-void Body::openFile() {
-	if (_bodyState & BODY_OPEN) {
-		_filename = "/tmp/.servio_" + to_string(getmstime()) + "_body.io";
-		_bodyFile = fopen(_filename.c_str(), "w+");  // TODO: check if the file is well opened !
-		_bodyState &= ~BODY_OPEN;
-	}
-}
-
-void Body::parseChunkedBody(stringstream &stream) {
-	string tmp = "";
-	size_t size = 0;
-	char   buff[1024] = {0};
-	if (_readingState & ONGION_BODY) {
-		stream.read(buff, _chunkedLength - _content);
-		_content += stream.gcount();
-		fwrite(buff, 1, stream.gcount(), _bodyFile);
-		char c = stream.get();
-		if (c == '\r') {
-			c = stream.get();
-			if (c != '\n') {
-				goto invalid;
-			}
-		}
-		if (_chunkedLength > _content)
-			_readingState = ONGION_BODY;
-		else {
-			_readingState = START_BODY;
-			_content = 0;
-		}
-	} else if (_readingState & START_BODY) {
-		char c = stream.get();
-		while (!stream.eof() && c != '\r' && c != '\n') {
-			if (isxdigit(c))
-				tmp += c;
-			else
-				goto invalid;
-			c = stream.get();
-		}
-		if (c == '\r') {
-			c = stream.get();
-			if (c != '\n') {
-				goto invalid;
-			}
-		}
-		if (tmp.length() > 0 && _readingState != BODY_ERROR) {
-			size = strtol(tmp.c_str(), nullptr, 16);
-			_readingState = ONGION_BODY;
-			if (size == 0) {
-				_readingState = BODY_END;
-				_bodyState |= BODY_DONE;
-			} else {
-				stream.read(buff, size);
-				_chunkedLength = size;
-				_content += stream.gcount();
-				fwrite(buff, 1, stream.gcount(), _bodyFile);
-				if (_chunkedLength > _content)
-					_readingState = ONGION_BODY;
-				else {
-					_readingState = START_BODY;
-					_content = 0;
-				}
-				char c = stream.get();
-				if (c == '\r') {
-					c = stream.get();
-					if (c != '\n') {
-						goto invalid;
-					}
-				}
-			}
-		}
-	}
-	return;
-invalid:
-	_readingState = BODY_ERROR;
-}
-
-void Body::parseLengthedBody(stringstream &stream) {
-	char buff[1024] = {0};
-	stream.read(buff, _contentLength - _content);
-	_content += stream.gcount();
-	fwrite(buff, 1, stream.gcount(), _bodyFile);
-	if (_contentLength == _content)
-		_bodyState |= BODY_DONE;
-}
-
-void Body::consumeBody(stringstream &stream) {
-	if (_bodyState & BODY_READ) {
-		switch (_bodyState) {
-		case CHUNKED_BODY:
-			if (_readingState & BODY_END) {
-				_bodyState |= BODY_DONE;
-				break;
-			}
-			if (_readingState & BODY_ERROR) {
-				_bodyState |= BODY_ERROR;
-				break;
-			}
-			parseChunkedBody(stream);
-			break;
-		case LENGTHED_BODY:
-			parseLengthedBody(stream);
-			break;
-		case MULTIPARTED_BODY:
-			parseMultipartBody(stream);
-			break;
-		}
-		fflush(_bodyFile);
-	}
 }
 
 map<int, BodyFile> &Body::getBodyFiles() {
@@ -208,162 +109,46 @@ int Body::getFileno() const {
 	return _bodyFile ? fileno(_bodyFile) : -1;
 }
 
-short Body::getState() const {
-	return _bodyState;
-}
-
-Body::~Body() {
-	closeFile();
-}
-
-void Body::parseHeaders(stringstream &ss) {
-	string key;
-	string value;
-
-	if (ss.str() == CRLF || ss.str() == LF) {
-		_multipartState = MULTIPART_BODY_INIT;
-		return;
-	}
-	getline(ss, key, ':');
-	getline(ss, value, '\0');
-	size_t n = 1;
-	if (value.length() > 1 && value.substr(value.length() - 2) == CRLF)
-		n = 2;
-	if (!value.length())
-		return;
-	string tmp = value.substr(value.length() - n);
-	if (value.length() < n + 1 || (tmp != LF && tmp != CRLF))
-		return;
-	value = value.substr(0, value.length() - n);
-	_bodyFiles[_fileIndex].addHeader(key, value);
-}
-
-static bool match(const char &chr, const char &chr_, stringstream &stream) {
-	return chr == chr_ && !stream.eof();
-}
-
-void Body::parseMultipartBody(stringstream &stream) {
-	FILE  *file;
-	string filename;
-
-	char   chr;
-	size_t currSeek;
-
-	while (!stream.eof() && _multipartState != MULTIPART_DONE) {
-		if (_multipartState & MULTIPART_INIT) {
-			switch (_multipartState) {
-			case MULTIPART_INIT_BOUNDARY:
-				(_boundary.consumeCRLF(stream)) && (_multipartState = MULTIPART_INIT_CRLF);
-				(_boundary.consumeBoundary(stream, _lost)) && (_multipartState = MULTIPART_INIT_CRLF);
-				_lost.str("");
-				break;
-
-			case MULTIPART_INIT_CRLF:
-				(_boundary.consumeCRLF(stream)) && (_multipartState = MULTIPART_HEADER);
-				break;
-			}
-		} else if (_multipartState & MULTIPART_HEADER) {
-			stream.get(chr);
-			_line += chr;
-			if (_line.find(CRLF) != string::npos || _line.find(LF) != string::npos) {
-				stringstream ss(_line);
-				parseHeaders(ss);
-				_line = "";
-				if (_multipartState & MULTIPART_BODY)
-					break;
-			}
-		} else if (_multipartState & MULTIPART_BODY) {
-			switch (_multipartState) {
-			case MULTIPART_BODY_INIT:
-				filename = "/tmp/.servio_" + to_string(getmstime()) + "_upload.io";
-				file = fopen(filename.c_str(), "w+");  // TODO: check if the file not opened !
-				_bodyFiles[_fileIndex].addFile(file, filename);
-				_multipartState = MULTIPART_BODY_READ;
-				break;
-			case MULTIPART_BODY_D:
-				stream.get(chr);
-				if (match('-', chr, stream)) {
-					_multipartState = MULTIPART_BODY_DD;
-					(!stream.eof()) && (_lost << chr);
-					break;
-				}
-				(!stream.eof()) && (_lost << chr);
-				_bodyFiles[_fileIndex].write(_lost);
-				_multipartState = MULTIPART_BODY_READ;
-				break;
-			case MULTIPART_BODY_DD:
-				_multipartState = MULTIPART_BODY_BOUNDARY;
-				break;
-			case MULTIPART_BODY_BOUNDARY:
-				int ret;
-				if ((ret = _boundary.consumeBoundary(stream, _lost))) {
-					if (ret == 1) {
-						stream.get(chr);
-						if (match('-', chr, stream)) {
-							_multipartState = MULTIPART_DONE;
-							_bodyState |= BODY_DONE;
-							return;
-						}
-						_lost.clear();
-						_lost.str("");
-						currSeek = stream.tellg();
-						stream.seekg(currSeek - 1);
-						_multipartState = MULTIPART_BODY_CRLF;
-					}
-					if (ret == -1) {
-						_bodyFiles[_fileIndex].write(_lost);
-						_multipartState = MULTIPART_BODY_READ;
-						break;
-					}
-				}
-				break;
-			case MULTIPART_BODY_CRLF:
-				(_boundary.consumeCRLF(stream)) && (_multipartState = MULTIPART_HEADER);
-				if (_multipartState & MULTIPART_HEADER)
-					_fileIndex++;
-				break;
-
-			case MULTIPART_BODY_LR:
-				stream.get(chr);
-				if (match('\n', chr, stream)) {
-					_multipartState = MULTIPART_BODY_LF;
-					(!stream.eof()) && (_lost << chr);
-					break;
-				}
-				(!stream.eof()) && (_lost << chr);
-				_bodyFiles[_fileIndex].write(_lost);
-				_multipartState = MULTIPART_BODY_READ;
-				break;
-			case MULTIPART_BODY_LF:
-				stream.get(chr);
-				if (match('-', chr, stream)) {
-					_multipartState = MULTIPART_BODY_D;
-					(!stream.eof()) && (_lost << chr);
-					break;
-				}
-				_bodyFiles[_fileIndex].write(_lost);
-
-				currSeek = stream.tellg();
-				stream.seekg(currSeek - 1);
-
-				_multipartState = MULTIPART_BODY_READ;
-				break;
-			case MULTIPART_BODY_READ:
-				stream.get(chr);
-				if (match('\r', chr, stream)) {
-					_multipartState = MULTIPART_BODY_LR;
-					(!stream.eof()) && (_lost << chr);
-					break;
-				} else if (match('-', chr, stream)) {
-					_multipartState = MULTIPART_BODY_D;
-					(!stream.eof()) && (_lost << chr);
-					break;
-				}
-				(!stream.eof()) && (_lost << chr);
-				_bodyFiles[_fileIndex].write(_lost);
-				break;
-			}
+void Body::chooseState(Header &headers) {
+	string te = headers.get("Transfer-Encoding");
+	if (!te.empty()) {
+		stringstream ss(te);
+		string       part;
+		while (getline(ss, part, ',')) {
+			trim(part);
+			if (iequalString(part, "Chunked"))
+				return setState(BODY_OPEN | CHUNKED_BODY);
 		}
+	}
+	string ct = headers.get("Content-Type");
+	_boundary = Boundary(ct);
+	if (_boundary.valid()) {
+		string needle = "\r\n--" + _boundary.value();
+		_search.init(needle, this);
+		// First boundary in the body lacks a leading CRLF — pre-seed the
+		// search with "\r\n" so the parser uniformly treats every boundary as
+		// "\r\n--<boundary>".
+		_search.feed("\r\n", 2);
+		return setState(BODY_OPEN | MULTIPARTED_BODY);
+	}
+
+	string cl = headers.get("Content-Length");
+	if (!cl.empty()) {
+		trim(cl);
+		if (cl.length() && cl[0] >= '1' && cl[0] <= '9' && every(cl, ::isdigit))
+			_contentLength = (size_t)atoll(cl.c_str());
+	}
+	if (_contentLength > 0)
+		setState(BODY_OPEN | LENGTHED_BODY);
+	else
+		setState(BODY_OPEN | BODY_DONE);
+}
+
+void Body::openFile() {
+	if (_bodyState & BODY_OPEN) {
+		_filename = "/tmp/.servio_" + to_string(getmstime()) + "_body.io";
+		_bodyFile = fopen(_filename.c_str(), "w+");
+		_bodyState &= ~BODY_OPEN;
 	}
 }
 
@@ -374,26 +159,252 @@ void Body::closeFile() {
 	}
 }
 
+size_t Body::consume(const char *buf, size_t len) {
+	if (!(_bodyState & BODY_READ) || (_bodyState & BODY_DONE) || !len)
+		return 0;
+
+	if (_bodyState & LENGTHED_BODY)
+		return consumeLengthed(buf, len);
+	if (_bodyState & CHUNKED_BODY)
+		return consumeChunked(buf, len);
+	if (_bodyState & MULTIPARTED_BODY)
+		return consumeMultipart(buf, len);
+	return 0;
+}
+
+size_t Body::consumeLengthed(const char *buf, size_t len) {
+	size_t remaining = (_contentLength > _written) ? (_contentLength - _written) : 0;
+	size_t take = (len < remaining) ? len : remaining;
+	if (take && _bodyFile)
+		fwrite(buf, 1, take, _bodyFile);
+	_written += take;
+	if (_written >= _contentLength)
+		_bodyState |= BODY_DONE;
+	return take;
+}
+
+// Chunked transfer decoding driven by a tiny state machine. Each call
+// consumes as many bytes as possible and bails out on incomplete frames so
+// the next recv() can resume.
+size_t Body::consumeChunked(const char *buf, size_t len) {
+	size_t i = 0;
+	while (i < len && !(_bodyState & BODY_DONE) && !(_bodyState & BODY_ERROR)) {
+		switch (_chunkPhase) {
+		case CHUNK_SIZE_LINE: {
+			char c = buf[i++];
+			if (c == '\r') continue;  // tolerate CR; LF terminates the line
+			if (c == '\n') {
+				if (_chunkSizeLine.empty()) {
+					_bodyState |= BODY_ERROR;
+					return i;
+				}
+				_chunkSize = (size_t)strtol(_chunkSizeLine.c_str(), nullptr, 16);
+				_chunkRemaining = _chunkSize;
+				_chunkSizeLine.clear();
+				if (_chunkSize == 0) {
+					_chunkPhase = CHUNK_TRAILER_CR;
+				} else {
+					_chunkPhase = CHUNK_DATA;
+				}
+				continue;
+			}
+			if (!isxdigit((unsigned char)c)) {
+				_bodyState |= BODY_ERROR;
+				return i;
+			}
+			_chunkSizeLine += c;
+			break;
+		}
+		case CHUNK_DATA: {
+			size_t avail = len - i;
+			size_t take = (avail < _chunkRemaining) ? avail : _chunkRemaining;
+			if (take && _bodyFile)
+				fwrite(buf + i, 1, take, _bodyFile);
+			i += take;
+			_chunkRemaining -= take;
+			if (_chunkRemaining == 0)
+				_chunkPhase = CHUNK_DATA_CR;
+			break;
+		}
+		case CHUNK_DATA_CR: {
+			char c = buf[i++];
+			if (c == '\r') {
+				_chunkPhase = CHUNK_DATA_LF;
+			} else if (c == '\n') {
+				_chunkPhase = CHUNK_SIZE_LINE;
+			} else {
+				_bodyState |= BODY_ERROR;
+				return i;
+			}
+			break;
+		}
+		case CHUNK_DATA_LF: {
+			char c = buf[i++];
+			if (c != '\n') {
+				_bodyState |= BODY_ERROR;
+				return i;
+			}
+			_chunkPhase = CHUNK_SIZE_LINE;
+			break;
+		}
+		case CHUNK_TRAILER_CR: {
+			char c = buf[i++];
+			if (c == '\r') {
+				_chunkPhase = CHUNK_TRAILER_LF;
+			} else if (c == '\n') {
+				_bodyState |= BODY_DONE;
+				return i;
+			} else {
+				// Trailer headers are not supported — skip to next CRLF.
+				_chunkPhase = CHUNK_TRAILER_CR;
+			}
+			break;
+		}
+		case CHUNK_TRAILER_LF: {
+			char c = buf[i++];
+			if (c != '\n') {
+				_bodyState |= BODY_ERROR;
+				return i;
+			}
+			_bodyState |= BODY_DONE;
+			return i;
+		}
+		}
+	}
+	return i;
+}
+
+// Multipart parsing driven by the StreamSearch needle scanner.
+// We alternate between two regimes:
+//  1. control regimes (MP_AFTER_BOUNDARY, MP_HEADERS) consume bytes directly;
+//  2. data regimes (MP_PREAMBLE, MP_PART_BODY) push bytes through the
+//     StreamSearch, which streams non-needle data to onMultipartData and flips
+//     `matched()` when the boundary needle has been observed in full.
+size_t Body::consumeMultipart(const char *buf, size_t len) {
+	size_t i = 0;
+	while (i < len && _mpPhase != MP_EPILOGUE) {
+		if (_mpPhase == MP_PREAMBLE || _mpPhase == MP_PART_BODY) {
+			size_t taken = _search.feed(buf + i, len - i);
+			i += taken;
+			if (_search.matched()) {
+				if (_mpPhase == MP_PART_BODY)
+					closePartFile();
+				_search.clearMatch();
+				_mpPhase = MP_AFTER_BOUNDARY;
+				_afterTail.clear();
+			} else {
+				break;  // chunk exhausted without finding boundary
+			}
+			continue;
+		}
+
+		if (_mpPhase == MP_AFTER_BOUNDARY) {
+			while (i < len && _afterTail.size() < 2)
+				_afterTail += buf[i++];
+			if (_afterTail.size() < 2)
+				break;
+			if (_afterTail == "--") {
+				_mpPhase = MP_EPILOGUE;
+				_bodyState |= BODY_DONE;
+				return i;
+			}
+			if (_afterTail != "\r\n") {
+				_bodyState |= BODY_ERROR;
+				return i;
+			}
+			_headerLine.clear();
+			_mpPhase = MP_HEADERS;
+			continue;
+		}
+
+		if (_mpPhase == MP_HEADERS) {
+			while (i < len) {
+				char c = buf[i++];
+				_headerLine += c;
+				size_t hl = _headerLine.size();
+				if (hl >= 2 && _headerLine[hl - 2] == '\r' && _headerLine[hl - 1] == '\n') {
+					if (hl == 2) {
+						// Empty line — headers done. Open the part file and
+						// switch to body scanning.
+						_headerLine.clear();
+						openPartFile();
+						_mpPhase = MP_PART_BODY;
+						break;
+					}
+					parsePartHeaderLine(_headerLine);
+					_headerLine.clear();
+				}
+			}
+			continue;
+		}
+	}
+	return i;
+}
+
+void Body::onData(const char *data, size_t len) {
+	if (_mpPhase == MP_PREAMBLE) return;  // discard preamble
+	if (_mpPhase == MP_PART_BODY && _partFileOpen) {
+		map<int, BodyFile>::iterator it = _bodyFiles.find(_fileIndex);
+		if (it != _bodyFiles.end())
+			it->second.write(data, len);
+	}
+}
+
+void Body::openPartFile() {
+	string filename = "/tmp/.servio_" + to_string(getmstime()) + "_" + to_string(_fileIndex) + "_upload.io";
+	FILE  *file = fopen(filename.c_str(), "w+");
+	if (!file) {
+		_bodyState |= BODY_ERROR;
+		return;
+	}
+	_bodyFiles[_fileIndex].addFile(file, filename);
+	_partFileOpen = true;
+}
+
+void Body::closePartFile() {
+	if (!_partFileOpen) return;
+	map<int, BodyFile>::iterator it = _bodyFiles.find(_fileIndex);
+	if (it != _bodyFiles.end() && it->second.getFile())
+		fflush(it->second.getFile());
+	_partFileOpen = false;
+	_fileIndex++;
+}
+
+void Body::parsePartHeaderLine(const string &line) {
+	// line ends with CRLF
+	if (line.size() < 2) return;
+	size_t end = line.size() - 2;
+	size_t colon = line.find(':');
+	if (colon == string::npos || colon >= end) return;
+	string key = line.substr(0, colon);
+	string value = line.substr(colon + 1, end - colon - 1);
+	trim(key);
+	trim(value);
+	_bodyFiles[_fileIndex].addHeader(key, value);
+}
+
 void Body::reset() {
-	_bodyState = BODY_INIT;
-	_readingState = START_BODY;
-	_content = 0;
-	_contentLength = 0;
-	_chunkedLength = 0;
-	_filename = "";
 	closeFile();
 
-	_multipartState = MULTIPART_INIT_BOUNDARY;
-	_line = "";
-	_lost.clear();
-	_lost.str("");
+	_bodyState = BODY_INIT;
+	_contentLength = 0;
+	_written = 0;
+
+	_chunkPhase = CHUNK_SIZE_LINE;
+	_chunkSize = 0;
+	_chunkRemaining = 0;
+	_chunkSizeLine.clear();
+
+	_mpPhase = MP_PREAMBLE;
+	_afterTail.clear();
+	_headerLine.clear();
+	_search.reset();
+	_partFileOpen = false;
 	_fileIndex = 0;
 
-	map<int, BodyFile>::iterator it = _bodyFiles.begin();
-	while (it != _bodyFiles.end()) {
-		if (it->second.getFile())
-			fclose(it->second.getFile());
-		it++;
+	for (map<int, BodyFile>::iterator it = _bodyFiles.begin(); it != _bodyFiles.end(); ++it) {
+		FILE *f = it->second.getFile();
+		if (f) fclose(f);
 	}
 	_bodyFiles.clear();
 }

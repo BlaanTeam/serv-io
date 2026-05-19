@@ -1,9 +1,50 @@
 #include "sio_response.hpp"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <unistd.h>
+
+#ifdef __linux__
+#include <sys/sendfile.h>
+#endif
+
+// Portable sendfile shim. The kernel ABI differs between platforms; the
+// wrapper presents a uniform "send up to `count` bytes from offset, advance
+// offset, return bytes-sent or -1 on hard error" contract.
+static ssize_t sio_sendfile(int sock, int filefd, off_t *offset, size_t count) {
+#ifdef __APPLE__
+	off_t len = (off_t)count;
+	int   r = ::sendfile(filefd, sock, *offset, &len, NULL, 0);
+	*offset += len;
+	if (r == -1) {
+		if ((errno == EAGAIN || errno == EINTR) && len > 0) return (ssize_t)len;
+		return -1;
+	}
+	return (ssize_t)len;
+#elif defined(__linux__)
+	return ::sendfile(sock, filefd, offset, count);
+#else
+	char    buf[1 << 14];
+	ssize_t want = (ssize_t)((count < sizeof(buf)) ? count : sizeof(buf));
+	ssize_t got = pread(filefd, buf, (size_t)want, *offset);
+	if (got <= 0) return got;
+	ssize_t sent = ::send(sock, buf, (size_t)got, 0);
+	if (sent > 0) *offset += sent;
+	return sent;
+#endif
+}
+
 Response::Response() {
 	_keepAlive = true;
 	_lengthState = INIT_LENGTH;
 	_stream = nullptr;
+	_fileFd = -1;
+	_filePos = 0;
+	_fileLen = 0;
 	_type = LENGTHED_RES;
 	_isCustomStatusCode = false;
 	setState(RES_INIT);
@@ -13,6 +54,9 @@ Response::Response(const short &statusCode, bool keepAlive) {
 	_statusCode = statusCode;
 	_keepAlive = keepAlive;
 	_stream = nullptr;
+	_fileFd = -1;
+	_filePos = 0;
+	_fileLen = 0;
 	_type = LENGTHED_RES;
 	_isCustomStatusCode = false;
 	setState(RES_INIT);
@@ -20,6 +64,9 @@ Response::Response(const short &statusCode, bool keepAlive) {
 
 Response::Response(const Response &copy) {
 	_stream = nullptr;
+	_fileFd = -1;
+	_filePos = 0;
+	_fileLen = 0;
 	*this = copy;
 }
 
@@ -37,6 +84,7 @@ Response &Response::operator=(const Response &rhs) {
 
 Response::~Response() {
 	delete _stream;
+	if (_fileFd >= 0) close(_fileFd);
 }
 
 void Response::init() {
@@ -193,14 +241,23 @@ void Response::setupDirectoryListing(const string &path, const string &title) {
 	setStream(buildDirectoryListing(path, title));
 }
 
-void Response::setupNormalResponse(const string &path, iostream *file) {
-	if (!file || !file->good())
-		return;
+bool Response::setupNormalResponse(const string &path) {
+	int fd = ::open(path.c_str(), O_RDONLY);
+	if (fd < 0)
+		return false;
+	struct stat st;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+		close(fd);
+		return false;
+	}
+	_fileFd = fd;
+	_filePos = 0;
+	_fileLen = st.st_size;
 	setStatusCode(200);
 	setConnectionStatus(true);
 	init();
 	addHeader("Content-Type", mimeTypes.choiceMimeType(path));
-	setStream(file);
+	return true;
 }
 
 void Response::parseHeaders(stringstream &ss) {
@@ -254,6 +311,12 @@ void Response::reset(void) {
 
 	delete _stream;
 	_stream = nullptr;
+	if (_fileFd >= 0) {
+		close(_fileFd);
+		_fileFd = -1;
+	}
+	_filePos = 0;
+	_fileLen = 0;
 	_isCustomStatusCode = false;
 	_statusStringCode = "";
 
@@ -266,6 +329,10 @@ void Response::reset(void) {
 // private functions
 
 void Response::setupLengthedBody() {
+	if (_fileFd >= 0) {
+		addHeader("Content-Length", to_string((long long)_fileLen));
+		return;
+	}
 	if (!_stream)
 		return;
 	size_t seek = _stream->tellg();
@@ -278,6 +345,18 @@ void Response::setupLengthedBody() {
 }
 
 void Response::sendLengthedBody(const sockfd &fd) {
+	if (_fileFd >= 0) {
+		off_t  remaining = _fileLen - _filePos;
+		if (remaining <= 0) {
+			setState(RES_DONE);
+			return;
+		}
+		size_t want = (remaining > (off_t)(1 << 16)) ? (size_t)(1 << 16) : (size_t)remaining;
+		ssize_t sent = sio_sendfile(fd, _fileFd, &_filePos, want);
+		if (sent < 0 || _filePos >= _fileLen)
+			setState(RES_DONE);
+		return;
+	}
 	if (!_stream)
 		return;
 	char buff[(1 << 10)];
@@ -310,11 +389,14 @@ void Response::sendChunkedBody(const sockfd &fd) {
 
 void Response::setupRangedBody() {
 	RangeSpecifier range = _range.getRangeSpecifiers()[0];
+	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream);
 
-	addHeader("Content-Length", to_string(range.getContentLength(_stream)));
+	if (_fileFd >= 0)
+		addHeader("Content-Length", to_string((long long)range.getContentLength(fileSize)));
+	else
+		addHeader("Content-Length", to_string(range.getContentLength(_stream)));
 	setStatusCode(PARTIAL_CONTENT);
 
-	size_t fileSize = getFileSize(_stream);
 	if (range.type == NOL)
 		range.rangeEnd = fileSize <= 0 ? 0 : fileSize - 1;
 	else if (range.type == NOF) {
@@ -322,23 +404,42 @@ void Response::setupRangedBody() {
 		range.rangeEnd = fileSize <= 0 ? 0 : fileSize - 1;
 	}
 
-	char buff[(1 << 10)];
-	sprintf(buff, "bytes %ld-%ld/%ld", range.rangeStart, range.rangeEnd, fileSize);
+	char buff[64];
+	snprintf(buff, sizeof(buff), "bytes %ld-%ld/%ld", (long)range.rangeStart, (long)range.rangeEnd, (long)fileSize);
 	addHeader("Content-Range", buff);
 }
 
 void Response::sendRangedBody(const sockfd &fd) {
-	// We don't support multiple ranges
 	RangeSpecifier range = _range.getRangeSpecifiers()[0];
+	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream);
 
-	range.rangeEnd = min(range.rangeEnd, getFileSize(_stream));
+	range.rangeEnd = min(range.rangeEnd, fileSize);
 
 	if (_lengthState == INIT_LENGTH) {
-		range.setupSeek(_stream);
-		_length = range.getContentLength(_stream);
+		if (_fileFd >= 0) {
+			_filePos = (off_t)range.rangeStart;
+			_length = range.getContentLength(fileSize);
+		} else {
+			range.setupSeek(_stream);
+			_length = range.getContentLength(_stream);
+		}
 		_lengthState = ONGOING_LENGTH;
 	}
-	if (_length > (1 << 10))
+
+	if (_fileFd >= 0) {
+		if (_length <= 0) {
+			_lengthState = DONE_LENGTH;
+		} else {
+			size_t  want = (_length > (1 << 16)) ? (size_t)(1 << 16) : (size_t)_length;
+			ssize_t sent = sio_sendfile(fd, _fileFd, &_filePos, want);
+			if (sent < 0) {
+				_lengthState = DONE_LENGTH;
+			} else {
+				_length -= (int)sent;
+				if (_length <= 0) _lengthState = DONE_LENGTH;
+			}
+		}
+	} else if (_length > (1 << 10))
 		sendKiloByte(fd);
 	else
 		sendLessThanKiloByte(fd);

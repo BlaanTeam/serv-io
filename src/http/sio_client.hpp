@@ -38,7 +38,7 @@ class Client {
 	// Getters
 	bool timedOut() const;
 
-	bool handleRequest(stringstream *stream);
+	bool handleRequest(const char *buf, size_t len);
 
 	void handleResponse(const sockfd &fd);
 

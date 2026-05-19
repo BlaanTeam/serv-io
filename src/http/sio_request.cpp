@@ -1,20 +1,22 @@
 #include "sio_request.hpp"
 
-Request::Request() {
-	_state = REQ_INIT;
-	_method = UNKNOWN;
-	_statusCode = BAD_REQUEST;
-}
+#include <cstdlib>
+#include <cmath>
+#include <cstring>
 
-Request::Request(const Request &copy) {
-	*this = copy;
-}
+Request::Request()
+	: _state(REQ_INIT),
+	  _statusCode(BAD_REQUEST),
+	  _method(UNKNOWN) {}
 
-Request::~Request() {
-	while (!_streams.empty()) {
-		delete _streams.front();
-		_streams.pop();
-	}
+// Request embeds a Body which holds self-referential state. Copies are
+// intentionally no-ops so destination slots get a fresh, default-state
+// Request that will be populated by the next request cycle.
+Request::Request(const Request &copy)
+	: _state(REQ_INIT),
+	  _statusCode(BAD_REQUEST),
+	  _method(UNKNOWN) {
+	(void)copy;
 }
 
 Request &Request::operator=(const Request &rhs) {
@@ -22,196 +24,175 @@ Request &Request::operator=(const Request &rhs) {
 	return *this;
 }
 
-void Request::parseFirstLine(string &line) {
-	stringstream ss(line);
-	string       buff;
-	string       uri;
-	string       httpVer;
+Request::~Request() {}
 
-	ss >> buff >> uri >> httpVer;
+// --------------------------------------------------------- state mutators --
 
-	string::size_type idx;
-	idx = uri.find('?');
-	_path = uri.substr(0, idx);
-	if (idx != string::npos)
-		_query = uri.substr(idx + 1);
-
-	pair<bool, string> pr = normpath(_path);
-
-	if (uri.size() > 2048 || !every(buff, ::isupper) || !pr.first || httpVer != HTTP_VERSION) {
-		_statusCode = (uri.size() > 2048) ? REQUEST_URI_TOO_LONG : _statusCode;
-		goto invalid;
-	}
-	_path = pr.second;
-	{
-		int idx = 0;
-		while (idx < httpMethodCount && httpMethods[idx] != buff)
-			idx++;
-		_method = (HttpMethod)pow(2, idx);
-	}
-	getline(ss, buff, '\0');
-	if ((buff != CRLF && buff != LF))
-		goto invalid;
-	changeState(REQ_HEADER);
-	return;
-
-invalid:
-	changeState(REQ_INVALID);
-}
-
-void Request::parseHeaders(string &line) {
-	stringstream ss(line);
-	string       key;
-	string       value;
-
-	if (line == CRLF || line == LF) {
-		_body.chooseState(_headers);
-		_body.openFile();
-		return changeState(_method & (GET | TRACE | OPTIONS | HEAD) ? REQ_DONE : REQ_BODY);
-	}
-	getline(ss, key, ':');
-	getline(ss, value, '\0');
-	size_t n = 1;
-	if (value.length() > 1 && value.substr(value.length() - 2) == CRLF)
-		n = 2;
-	if (!value.length())
-		return;
-	string tmp = value.substr(value.length() - n);
-	if (value.length() < n + 1 || (tmp != LF && tmp != CRLF))
-		goto invalid;
-	value = value.substr(0, value.length() - n);
-	_headers.add(key, value);
-	return;
-invalid:
-	changeState(REQ_INVALID);
-}
-
-void Request::parseBody(stringstream &stream) {
-	_body.consumeBody(stream);
-}
-
-void Request::changeState(const int &state) {
+void Request::changeState(short state) {
 	_state = state;
 }
 
-void Request::consumeStream(stringstream &stream) {
-	char chr;
-	bool empty = false;
+void Request::fail(short statusCode) {
+	_statusCode = statusCode;
+	_state = REQ_INVALID;
+}
 
-	bool n = 0;
+// --------------------------------------------------------- main feed loop --
 
-	string tmp(_line);
+size_t Request::consume(const char *buf, size_t len) {
+	if (_state & (REQ_DONE | REQ_INVALID))
+		return 0;
 
-	(!stream.get(chr).eof()) && (n += 1);
-
-	tmp += strchr(CRLF, chr) && _state & REQ_INIT ? "" : string(1, chr);
-
-	while (!stream.eof()) {
+	size_t i = 0;
+	while (i < len) {
+		// REQ_BODY delegates straight to the Body parser, which knows how to
+		// consume large contiguous spans without going through this byte loop.
 		if (_state & REQ_BODY) {
-			if (n == 1) {
-				int seek = stream.tellg();
-				stream.seekg(seek - 1);
+			size_t used = _body.consume(buf + i, len - i);
+			i += used;
+			if (_body.getState() & BODY_ERROR) {
+				fail(BAD_REQUEST);
+				return i;
 			}
-
-			parseBody(stream);
-			if (_body.getState() & BODY_DONE) {
+			if (_body.getState() & BODY_DONE)
 				changeState(REQ_DONE);
-				break;
-			}
+			break;  // body parser owns the rest of this chunk
 		}
 
-		if (_state & REQ_INIT && !strchr(CRLF, chr)) {
-			if (empty) tmp += chr;
+		char c = buf[i++];
+
+		if (_state & REQ_INIT) {
+			if (c == '\r' || c == '\n') continue;  // tolerate leading CRLFs
+			_line.clear();
+			_line += c;
 			changeState(REQ_LINE);
-		}
-		if (_state & REQ_INIT && strchr(CRLF, chr)) {
-			(!stream.get(chr).eof()) && (n += 1);
-			empty = true;
 			continue;
 		}
-		if (tmp.find(CRLF) != string::npos || tmp.find(LF) != string::npos) {
-			switch (_state) {
-			case REQ_LINE:
-				parseFirstLine(tmp);
-				break;
-			case REQ_HEADER:
-				parseHeaders(tmp);
-				break;
-			}
-			tmp = "";
+
+		if (_line.size() >= REQ_MAX_HEADER_LINE) {
+			fail(_state & REQ_LINE ? REQUEST_URI_TOO_LONG : BAD_REQUEST);
+			return i;
 		}
-		(!stream.get(chr).eof()) && (n += 1);
-		if (!stream.eof())
-			tmp += chr;
+		_line += c;
+
+		// Lines terminate on LF; CRLF is supported because the trailing CR was
+		// included in _line — strip it before parsing.
+		if (c == '\n') {
+			size_t end = _line.size();
+			if (end >= 2 && _line[end - 2] == '\r') {
+				_line.erase(end - 2);
+			} else {
+				_line.erase(end - 1);
+			}
+
+			if (_state & REQ_LINE) {
+				parseRequestLine();
+				_line.clear();
+				if (_state & REQ_INVALID) return i;
+			} else if (_state & REQ_HEADER) {
+				if (_line.empty()) {
+					onHeadersComplete();
+					_line.clear();
+					if (_state & (REQ_INVALID | REQ_DONE | REQ_BODY)) {
+						if (_state & REQ_INVALID) return i;
+						continue;
+					}
+				} else {
+					parseHeaderLine();
+					_line.clear();
+					if (_state & REQ_INVALID) return i;
+				}
+			}
+		}
 	}
-	_line = tmp;
+	return i;
 }
 
-void Request::addStream(stringstream *stream) {
-	_streams.push(stream);
+// --------------------------------------------------------- line handlers --
+
+// Splits the request line on the two single-spaces required by RFC 9112:
+//   METHOD SP REQUEST-URI SP HTTP-VERSION
+void Request::parseRequestLine() {
+	size_t sp1 = _line.find(' ');
+	if (sp1 == string::npos) return fail(BAD_REQUEST);
+	size_t sp2 = _line.find(' ', sp1 + 1);
+	if (sp2 == string::npos) return fail(BAD_REQUEST);
+
+	string method = _line.substr(0, sp1);
+	string uri = _line.substr(sp1 + 1, sp2 - sp1 - 1);
+	string version = _line.substr(sp2 + 1);
+
+	if (uri.size() > REQ_MAX_URI) return fail(REQUEST_URI_TOO_LONG);
+	if (version != HTTP_VERSION) return fail(BAD_REQUEST);
+	if (method.empty() || !every(method, ::isupper)) return fail(BAD_REQUEST);
+
+	size_t q = uri.find('?');
+	string path = (q == string::npos) ? uri : uri.substr(0, q);
+	if (q != string::npos) _query = uri.substr(q + 1);
+
+	pair<bool, string> normalized = normpath(path);
+	if (!normalized.first) return fail(BAD_REQUEST);
+	_path = normalized.second;
+
+	int idx = 0;
+	while (idx < httpMethodCount && httpMethods[idx] != method) ++idx;
+	if (idx >= httpMethodCount) return fail(BAD_REQUEST);
+	_method = (HttpMethod)(1 << idx);
+
+	changeState(REQ_HEADER);
 }
 
-stringstream *Request::getAvailableStream(void) {
-	if (_streams.size() && _streams.front()->eof()) {
-		delete _streams.front();
-		_streams.pop();
+void Request::parseHeaderLine() {
+	size_t colon = _line.find(':');
+	if (colon == string::npos || colon == 0) return fail(BAD_REQUEST);
+
+	string key = _line.substr(0, colon);
+	string value = _line.substr(colon + 1);
+	trim(key);
+	trim(value);
+	_headers.add(key, value);
+}
+
+void Request::onHeadersComplete() {
+	_body.chooseState(_headers);
+	_body.openFile();
+	if (_method & (GET | TRACE | OPTIONS | HEAD)) {
+		changeState(REQ_DONE);
+		return;
 	}
-
-	return _streams.size() ? _streams.front() : nullptr;
+	if (_body.getState() & BODY_DONE) {
+		changeState(REQ_DONE);
+		return;
+	}
+	changeState(REQ_BODY);
 }
 
-// Getters
+// ------------------------------------------------------------ getters etc --
 
-string Request::getPath(void) const {
-	return _path;
-}
+string Request::getPath(void) const { return _path; }
+string Request::getQuery(void) const { return _query; }
+short  Request::getState(void) const { return _state; }
+int    Request::getStatusCode() const { return _statusCode; }
+int    Request::getFileno() const { return _body.getFileno(); }
+HttpMethod Request::getMethod(void) const { return _method; }
 
-string Request::getQuery(void) const {
-	return _query;
-}
+Header             &Request::getHeaders(void) { return _headers; }
+map<int, BodyFile> &Request::getBodyFiles() { return _body.getBodyFiles(); }
 
-short Request::getState(void) const {
-	return _state;
-}
-
-int Request::getStatusCode() const {
-	return _statusCode;
-}
-
-int Request::getFileno() const {
-	return _body.getFileno();
-}
-
-HttpMethod Request::getMethod(void) const {
-	return _method;
-}
-
-Header &Request::getHeaders(void) {
-	return _headers;
-}
-map<int, BodyFile> &Request::getBodyFiles() {
-	return _body.getBodyFiles();
-}
-bool Request::valid() const {
-	return (_state & ~REQ_INVALID);
-}
+bool Request::valid() const { return !(_state & REQ_INVALID); }
 
 bool Request::isTooLarge(const int &clientMaxSize) {
 	string value = _headers.get("Content-Length");
-	if (value.empty())
-		return false;
-	if (!every(value, ::isdigit))
-		return false;
+	if (value.empty()) return false;
+	if (!every(value, ::isdigit)) return false;
 	return atoll(value.c_str()) > clientMaxSize;
 }
 
-bool Request::match(const int &state) const {
-	return _state & state;
-}
+bool Request::match(const int &state) const { return _state & state; }
+
 Range Request::getRange() {
 	string value = _headers.get("Range");
-	if (value.empty())
-		return Range();
+	if (value.empty()) return Range();
 	return Range(value);
 }
 
@@ -219,11 +200,9 @@ void Request::reset(void) {
 	_state = REQ_INIT;
 	_method = UNKNOWN;
 	_statusCode = BAD_REQUEST;
-
-	_path = "";
-	_query = "";
-
-	// clear the headers
+	_path.clear();
+	_query.clear();
+	_line.clear();
 	_headers.clear();
 	_body.reset();
 }

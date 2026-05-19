@@ -35,12 +35,9 @@ bool Client::timedOut(void) const {
 	return getmstime() - _time > TIMEOUT;
 }
 
-bool Client::handleRequest(stringstream *stream) {
+bool Client::handleRequest(const char *buf, size_t len) {
 	reset();
-	_req.addStream(stream);
-	stringstream *availableStream = _req.getAvailableStream();
-	if (availableStream)
-		_req.consumeStream(*availableStream);
+	_req.consume(buf, len);
 
 	VirtualServer *virtualServer = config.match(Address(_connection.first), _req.getHeaders().get("Host"));
 
@@ -102,15 +99,15 @@ bool Client::handleRequest(stringstream *stream) {
 				}
 
 				string tmp = joinPath(path, location->getIndex());
-				if (!access(tmp.c_str(), F_OK | R_OK))
-					_res.setupNormalResponse(tmp, new fstream(tmp, ios::in));
+				if (!access(tmp.c_str(), F_OK | R_OK) && _res.setupNormalResponse(tmp))
+					;
 				else if (location->isAutoIndexable())
 					_res.setupDirectoryListing(path, _req.getPath());
 				else
 					_res.setupErrorResponse(FORBIDDEN, location);
 			} else {
-				if (!access(path.c_str(), F_OK | R_OK))
-					_res.setupNormalResponse(path, new fstream(path, ios::in));
+				if (!access(path.c_str(), F_OK | R_OK) && _res.setupNormalResponse(path))
+					;
 				else
 					_res.setupErrorResponse(FORBIDDEN, location);
 			}

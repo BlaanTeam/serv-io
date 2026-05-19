@@ -21,6 +21,7 @@ struct RangeSpecifier {
 	UnitType type;
 
 	size_t getContentLength(iostream *stream);
+	size_t getContentLength(size_t fileSize);
 	void   setupSeek(iostream *stream);
 };
 

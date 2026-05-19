@@ -36,7 +36,8 @@ HTTP_SRC = sio_request.cpp\
 	sio_http_range.cpp\
 	sio_cgi.cpp\
 	sio_header.cpp\
-	sio_boundary.cpp
+	sio_boundary.cpp\
+	sio_streamsearch.cpp
 
 # http headers
 HTTP_HEADER = sio_request.hpp\
@@ -48,7 +49,8 @@ HTTP_HEADER = sio_request.hpp\
 	sio_http_range.hpp\
 	sio_cgi.hpp\
 	sio_header.hpp\
-	sio_boundary.hpp
+	sio_boundary.hpp\
+	sio_streamsearch.hpp
 
 # utility files
 UTILITY_SRC = sio_socket.cpp\

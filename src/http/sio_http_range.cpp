@@ -1,9 +1,12 @@
 #include "sio_http_range.hpp"
 
 size_t RangeSpecifier::getContentLength(iostream *stream) {
+	return getContentLength(getFileSize(stream));
+}
+
+size_t RangeSpecifier::getContentLength(size_t fileSize) {
 	long long contentLength = rangeEnd - rangeStart + 1;
 
-	size_t fileSize = getFileSize(stream);
 	if (type == NOL)
 		contentLength = fileSize - rangeStart;
 	else if (type & NOF)

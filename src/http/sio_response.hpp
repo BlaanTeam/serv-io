@@ -16,6 +16,9 @@
 #define ONGOING_LENGTH (1 << 1)
 #define DONE_LENGTH (1 << 2)
 
+#include <sys/types.h>
+
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <sstream>
@@ -50,6 +53,13 @@ class Response {
 
 	iostream *_stream;
 	int       _fd;
+
+	// sendfile() path: when serving a regular file we skip the iostream layer
+	// and ask the kernel to copy file -> socket directly. `_fileFd` is -1 when
+	// the response is in-memory (stringstream-backed) or fstream-backed.
+	int       _fileFd;
+	off_t     _filePos;
+	off_t     _fileLen;
 
 	Range _range;
 
@@ -86,7 +96,9 @@ class Response {
 	void setupErrorResponse(const int &statusCode, MainContext<Type> *ctx, bool isBuiltIn = true);
 	void setupRedirectResponse(Redirect *redir, MainContext<Type> *ctx);
 	void setupDirectoryListing(const string &path, const string &title);
-	void setupNormalResponse(const string &path, iostream *file);
+	// Opens `path` with open(2) and wires the response for sendfile(2) delivery.
+	// Returns false if the file cannot be opened.
+	bool setupNormalResponse(const string &path);
 	void setupCGIResponse(const int &fd, Request *req);
 	void setupUploadResponse(LocationContext<Type> *location, Request *req);
 

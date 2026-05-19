@@ -2,78 +2,43 @@
 
 #include <sstream>
 
-Boundary::Boundary() {
-	_valid = false;
-}
+Boundary::Boundary() : _valid(false) {}
 
-Boundary::Boundary(const string &value) {
-	_valid = true;
+Boundary::Boundary(const string &headerValue) : _valid(false) {
+	stringstream ss(headerValue);
+	string       part;
 
-	stringstream ss(value);
-
-	string part;
-	getline(ss, part, ';');
+	if (!getline(ss, part, ';'))
+		return;
 	trim(part);
 	if (!iequalString(part, MULTIPART_FORM_DATA_STRING))
-		goto invalid;
+		return;
 
-	getline(ss, part, '\0');
+	if (!getline(ss, part, '\0'))
+		return;
 	trim(part);
-	ss.clear();
-	ss.str(part);
 
-	getline(ss, part, '=');
-	if (!iequalString(part, BOUNDARY_STRING))
-		goto invalid;
+	stringstream kv(part);
+	string       key;
+	if (!getline(kv, key, '='))
+		return;
+	trim(key);
+	if (!iequalString(key, BOUNDARY_STRING))
+		return;
 
-	getline(ss, _value, '\0');
+	if (!getline(kv, _value, '\0'))
+		return;
 	trim(_value);
 	trim(_value, "\"");
-	return;
-invalid:
-	_valid = false;
-}
-
-bool Boundary::operator==(const string &value) {
-	return _value == value;
+	if (_value.empty())
+		return;
+	_valid = true;
 }
 
 bool Boundary::valid() const {
 	return _valid;
 }
 
-int Boundary::consumeBoundary(stringstream &stream, stringstream &ss) {
-	static size_t idx = 0;
-
-	char chr;
-	while (!stream.eof() && idx < _value.length()) {
-		stream.get(chr);
-		ss << chr;
-		if (_value[idx] != chr && !stream.eof())
-			return idx = 0, -1;
-		if (!stream.eof())
-			idx++;
-	}
-	if (idx == _value.length())
-		return ss.clear(), ss.str(""), idx = 0, 1;
-	return 0;
-}
-
-#define CRLF "\r\n"
-
-int Boundary::consumeCRLF(stringstream &stream) {
-	static size_t idx = 0;
-
-	char chr;
-	while (!stream.eof() && idx < 2) {
-		stream.get(chr);
-		if (CRLF[idx] != chr && !stream.eof())  // ? INFO: preferable to skip \r
-			return idx = 0, -1;
-		if (!stream.eof())
-			idx++;
-	}
-	if (idx == 2)
-		return idx = 0, 1;
-
-	return 0;
+const string &Boundary::value() const {
+	return _value;
 }

@@ -1,11 +1,7 @@
 #ifndef __REQUEST_H__
 #define __REQUEST_H__
 
-#include <fstream>
-#include <iostream>
 #include <map>
-#include <queue>
-#include <sstream>
 #include <string>
 
 #include "./sio_header.hpp"
@@ -24,6 +20,9 @@ using namespace std;
 #define REQ_DONE (1 << 4)
 #define REQ_INVALID (1 << 5)
 
+#define REQ_MAX_URI 8192
+#define REQ_MAX_HEADER_LINE 8192
+
 class Body;
 
 class Request {
@@ -33,50 +32,52 @@ class Request {
 	HttpMethod _method;
 	string     _path;
 	string     _query;
-	string     _line;
+	string     _line;  // accumulating request line / current header line
 
 	Header _headers;
 	Body   _body;
 
-	queue<stringstream *> _streams;
-
    public:
 	typedef Header::iterator headerIter;
 
-   private:
-	void parseFirstLine(string &line);
-	void parseHeaders(string &line);
-	void parseBody(stringstream &stream);
-
-	void changeState(const int &state);
-
-   public:
 	Request();
 	Request(const Request &copy);
+	Request &operator=(const Request &rhs);
 	~Request();
-	Request      &operator=(const Request &rhs);
-	void          consumeStream(stringstream &stream);
-	stringstream *getAvailableStream(void);
-	void          addStream(stringstream *stream);
+
+	// Feed bytes received from the client socket. Returns the number of bytes
+	// consumed (may be < len if parsing is complete or invalid).
+	size_t consume(const char *buf, size_t len);
 
 	// Getters
-	string     getPath(void) const;
-	string     getQuery(void) const;
-	short      getState(void) const;
-	int        getStatusCode() const;
-	int        getFileno() const;
-	HttpMethod getMethod(void) const;
-	bool       match(const int &state) const;
-	Header    &getHeaders(void);
+	string             getPath(void) const;
+	string             getQuery(void) const;
+	short              getState(void) const;
+	int                getStatusCode() const;
+	int                getFileno() const;
+	HttpMethod         getMethod(void) const;
+	bool               match(const int &state) const;
+	Header            &getHeaders(void);
 	map<int, BodyFile> &getBodyFiles();
-	Range      getRange();
+	Range              getRange();
 
 	void reset(void);
-
 	void closeBodyFile(void);
 
 	bool valid() const;
 	bool isTooLarge(const int &clientMaxSize);
+
+   private:
+	// Consume one byte while in REQ_INIT (skip leading CRLF/whitespace).
+	// Returns true to continue the outer loop, false to advance to REQ_LINE.
+	bool skipLeading(char c);
+
+	void parseRequestLine();
+	void parseHeaderLine();
+	void onHeadersComplete();
+
+	void changeState(short state);
+	void fail(short statusCode);
 };
 
 #endif

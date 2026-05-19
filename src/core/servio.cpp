@@ -51,8 +51,10 @@ static set<Address> getVirtualServers(MainContext<Type> *main) {
 	return addrs;
 }
 
+#define RECV_BUF_SIZE (1 << 14)
+
 void servio_init(const int &ac, char *const *av) {
-	char stream[(1 << 0xA)];
+	char stream[RECV_BUF_SIZE];
 
 	if (!parse_options(ac, av, config) || !config.syntaxOnly())
 		return;
@@ -85,15 +87,13 @@ void servio_init(const int &ac, char *const *av) {
 				tmp.add(newConnection.first, POLLIN);
 				clients[newConnection.first] = Client(newConnection);
 			} else if (it->revents & POLLIN) {
-				int nbyte = recv(it->fd, stream, (1 << 0xA), 0);
-				if (nbyte != -1) {
-					stringstream *ss = new stringstream();
-					ss->write(stream, nbyte);
+				int nbyte = recv(it->fd, stream, RECV_BUF_SIZE, 0);
+				if (nbyte > 0) {
 					clients[it->fd].setTime(getmstime());
 					clients[it->fd].setPollFd(it->fd, tmp);
-					if (clients[it->fd].handleRequest(ss))
+					if (clients[it->fd].handleRequest(stream, (size_t)nbyte))
 						goto purgeConnection;
-				} else if (!nbyte)
+				} else if (nbyte == 0)
 					goto purgeConnection;
 			}
 			if (it->revents & POLLOUT) {
