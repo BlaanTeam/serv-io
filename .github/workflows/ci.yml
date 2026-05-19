@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [master, v2]
+  pull_request:
+    branches: [master, v2]
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Build (debug + ASan)
+        run: make -j$(getconf _NPROCESSORS_ONLN)
+
+      - name: Syntax-check example config
+        run: ./servio -t -c examples/minimal.conf
+
+      - name: Smoke test (background server + curl)
+        run: |
+          ./servio -c examples/minimal.conf &
+          SERVIO_PID=$!
+          sleep 1
+          set -e
+          curl -sS -o /tmp/index.html  -w "GET / -> %{http_code}\n"          http://localhost:8081/        | grep -q 200
+          curl -sS -o /tmp/range.bin   -H "Range: bytes=0-99"                http://localhost:8081/        | true
+          echo "hello-ci" > /tmp/ci.txt
+          curl -sS -F file=@/tmp/ci.txt http://localhost:8081/upload | grep -qi "201\|Upload"
+          kill $SERVIO_PID || true
+
+      - name: Build (release)
+        run: |
+          make fclean
+          make release

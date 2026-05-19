@@ -1,0 +1,19 @@
+---
+BasedOnStyle: Google
+Standard: c++03
+IndentWidth: 4
+TabWidth: 4
+UseTab: ForIndentation
+IndentCaseLabels: false
+AlignConsecutiveDeclarations: true
+ColumnLimit: 0
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+PointerAlignment: Right
+SortIncludes: false
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements
+BreakBeforeBraces: Attach
+NamespaceIndentation: None
+...

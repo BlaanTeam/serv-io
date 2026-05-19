@@ -1,230 +1,130 @@
 # ServIO
 
-A lightweight, high-performance HTTP web server implemented in C++98, inspired by NGINX configuration syntax and designed for modern web applications.
+[![ci](https://github.com/BlaanTeam/serv-io/actions/workflows/ci.yml/badge.svg)](https://github.com/BlaanTeam/serv-io/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![C++98](https://img.shields.io/badge/C%2B%2B-98-informational.svg)](#building)
 
-## Overview
-
-ServIO is a custom HTTP/1.1 web server that provides essential web server functionality including static file serving, CGI support, file uploads, redirections, and virtual host management. The server uses a configuration system similar to NGINX, making it familiar and easy to configure.
+A lightweight HTTP/1.1 web server written in C++98, inspired by NGINX's
+configuration syntax. ServIO does static file serving, CGI, file uploads,
+range requests, virtual hosts, and custom error pages — all driven by a
+non-blocking `poll(2)` loop and a streaming request parser.
 
 ## Features
 
-- **HTTP/1.1 Protocol Support** - Full implementation of HTTP/1.1 with persistent connections
-- **Virtual Hosts** - Multiple server blocks with different ports and server names
-- **Static File Serving** - Efficient serving of static content with MIME type detection
-- **CGI Support** - Execute server-side scripts (Python, PHP, etc.)
-- **File Upload** - Handle file uploads with configurable storage locations
-- **URL Redirections** - Support for HTTP redirects (301, 302, etc.)
-- **Directory Indexing** - Automatic directory listing when enabled
-- **Error Pages** - Customizable error pages for different HTTP status codes
-- **Request Size Limits** - Configurable maximum request body size
-- **Method Restrictions** - Control allowed HTTP methods per location
-- **Polling I/O** - Non-blocking I/O using poll() for high concurrency
-- **Signal Handling** - Proper signal management for graceful operation
+- HTTP/1.1 with persistent connections and `Range:` support
+- Virtual hosts (per listening port / `Host` header)
+- Static file serving via `sendfile(2)` on Linux and macOS
+- CGI/1.1 (fork+exec, configurable script extensions)
+- Multipart file uploads, decoded with a streamsearch-style needle scanner
+- Configurable error pages, redirects, directory listings, body-size limits
+- NGINX-flavoured configuration with a small recursive-descent parser
 
-## Architecture
+## Quick start
 
-The server is built with a modular architecture:
-
-- **Core** (`src/core/`) - Main server logic, configuration parsing, and AST
-- **HTTP** (`src/http/`) - HTTP protocol implementation, request/response handling
-- **Utility** (`src/utility/`) - Socket management, logging, and helper functions
-
-### Key Components
-
-- **Configuration Parser** - Lexer and parser for NGINX-like configuration syntax
-- **Socket Manager** - Non-blocking socket operations with poll()
-- **Client Manager** - Connection handling and lifecycle management
-- **Request Processor** - HTTP request parsing and validation
-- **Response Generator** - HTTP response construction and delivery
-- **CGI Handler** - External script execution and communication
-
-## Build Requirements
-
-- **Compiler**: C++ compiler with C++98 standard support
-- **Build System**: GNU Make
-- **Platform**: Unix-like systems (Linux, macOS)
-
-## Installation
-
-1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd servIO
+git clone https://github.com/BlaanTeam/serv-io.git
+cd serv-io
+make                                  # debug + AddressSanitizer
+./servio -t -c examples/minimal.conf  # syntax-check the example config
+./servio   -c examples/minimal.conf   # listen on http://localhost:8081
 ```
 
-2. Build the server:
+Then:
+
 ```bash
-make
+curl -i http://localhost:8081/
+echo "hello" > /tmp/up.txt && curl -F file=@/tmp/up.txt http://localhost:8081/upload
 ```
 
-3. Clean build artifacts:
-```bash
-make clean      # Remove object files
-make fclean     # Remove all build artifacts
-make re         # Clean rebuild
+## Building
+
+| Target              | Purpose                                                    |
+|---------------------|------------------------------------------------------------|
+| `make` / `make all` | Debug build with `-ggdb` and AddressSanitizer (default).   |
+| `make release`      | Optimized build (`-O2`, no sanitizer).                     |
+| `make clean`        | Remove `build/`.                                           |
+| `make fclean`       | Remove all build artifacts including the binary.           |
+| `make re`           | `fclean` + `all`.                                          |
+| `make format`       | Run `clang-format -i` on `src/` using the project style.   |
+| `make install`      | Install `servio` to `$(DESTDIR)$(PREFIX)/bin` (`/usr/local`). |
+
+The build requires a C++ compiler that accepts `-std=c++98` (Apple Clang,
+GCC, recent Clang) and GNU Make. No third-party dependencies.
+
+## Usage
+
+```
+Usage: servio [-hvtT] [-c filename]
+
+  -h            this help
+  -v            show version and exit
+  -t            test configuration and exit
+  -T            test configuration, dump it, and exit
+  -c filename   configuration file path (example: examples/servio.conf)
 ```
 
 ## Configuration
 
-ServIO uses a configuration file syntax similar to NGINX. The default configuration is located at `conf/servio.conf`.
-
-### Basic Configuration Structure
+ServIO uses an NGINX-style configuration file. A minimal example:
 
 ```nginx
 http {
     client_max_body_size 30m;
 
     server {
-        listen 80;
-        server_name example.com;
+        listen 8081;
 
         location / {
             root html;
             index index.html;
-        }
-
-        location /cgi {
-            cgi_assign ".py";
+            autoindex on;
         }
 
         location /upload {
+            allowed_methods POST;
             upload_store /tmp;
         }
     }
 }
 ```
 
-### Configuration Directives
+Full grammar: [docs/grammar.md](docs/grammar.md).
+Example configs: [examples/](examples/).
 
-#### HTTP Block Directives
-- `client_max_body_size` - Maximum size of client request body
-- `root` - Document root directory
-- `allowed_methods` - Allowed HTTP methods (GET, POST, DELETE)
-- `autoindex` - Enable/disable directory listing
-- `index` - Default index files
-- `error_page` - Custom error page mapping
+### Directive cheatsheet
 
-#### Server Block Directives
-- `listen` - Port to listen on
-- `server_name` - Virtual host server name
-- `return` - HTTP redirect response
+| Block      | Directive                | Notes                                                  |
+|------------|--------------------------|--------------------------------------------------------|
+| `http`     | `client_max_body_size`   | Maximum request body, e.g. `30m`                       |
+|            | `root`                   | Default document root                                  |
+|            | `allowed_methods`        | `GET` `POST` `DELETE` (whitelist)                      |
+|            | `autoindex on\|off`      | Directory listing fallback                             |
+|            | `index <files>...`       | Index files searched in order                          |
+|            | `error_page <code> <path>`| Custom error page                                     |
+| `server`   | `listen <port>`          | Listening port (one per server block)                  |
+|            | `server_name <hosts>...` | `Host` header match                                    |
+|            | `return <code> <target>` | Redirect / static response                             |
+| `location` | `cgi_assign <exts>...`   | Run scripts matching extensions as CGI                 |
+|            | `upload_store <dir>`     | Where multipart uploads land                           |
 
-#### Location Block Directives
-- `cgi_assign` - File extensions for CGI execution
-- `upload_store` - Directory for file uploads
-- `return` - Location-specific redirects
-
-### Configuration Grammar
-
-The complete BNF grammar for the configuration file is documented in `conf/grammar.md`.
-
-## Usage
-
-1. **Start the server** with default configuration:
-```bash
-./servio
-```
-
-2. **Use custom configuration**:
-```bash
-./servio -c /path/to/config.conf
-```
-
-3. **Check configuration syntax**:
-```bash
-./servio -t
-```
-
-The server will start listening on the configured ports and serve content according to the configuration directives.
-
-## Example Configurations
-
-### Static File Server
-```nginx
-http {
-    server {
-        listen 8080;
-        location / {
-            root /var/www/html;
-            autoindex on;
-        }
-    }
-}
-```
-
-### CGI Application Server
-```nginx
-http {
-    server {
-        listen 80;
-        location / {
-            root html;
-        }
-        location /cgi-bin {
-            cgi_assign ".py" ".php";
-        }
-    }
-}
-```
-
-### File Upload Server
-```nginx
-http {
-    client_max_body_size 100m;
-    server {
-        listen 80;
-        location /upload {
-            allowed_methods POST;
-            upload_store /var/uploads;
-        }
-    }
-}
-```
-
-## Project Structure
+## Project layout
 
 ```
-servIO/
-├── src/
-│   ├── core/           # Core server functionality
-│   ├── http/           # HTTP protocol implementation
-│   ├── utility/        # Utility functions and helpers
-│   └── sio_main.cpp    # Main entry point
-├── conf/
-│   ├── servio.conf     # Default configuration
-│   └── grammar.md      # Configuration grammar documentation
-├── html/               # Default web content
-├── logs/               # Log files
-├── Makefile           # Build configuration
-└── .gitignore         # Git ignore rules
+src/             Source code (entry point + core/http/utility modules)
+docs/            Architecture notes and config grammar
+examples/        Sample configuration files
+html/            Default document root used by the example config
+.github/         CI workflow and issue/PR templates
 ```
 
-## Development
-
-### Code Style
-- C++98 standard compliance
-- RAII principles for resource management
-- Error handling with exceptions where appropriate
-- Memory leak prevention with proper cleanup
-
-### Debugging
-The server is built with debugging symbols (`-ggdb`) and includes AddressSanitizer support for memory error detection.
-
-### Testing
-The configuration includes test locations for validating various server features:
-- Method restrictions (`/tests/allow`)
-- Body size limits (`/tests/max_size`)
-- CGI execution (`/cgi`)
-- File uploads (`/upload`)
-- Redirections (`/redirect`)
+See [docs/architecture.md](docs/architecture.md) for a tour of the modules.
 
 ## Contributing
 
-1. Follow the existing code style and C++98 standards
-2. Test your changes with various configuration scenarios
-3. Ensure memory safety and proper error handling
-4. Update documentation for new features
+PRs and issues welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). For security reports, see
+[SECURITY.md](SECURITY.md).
 
 ## License
 
-This project is provided as-is for educational and development purposes.
+[MIT](LICENSE).

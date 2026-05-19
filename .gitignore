@@ -1,46 +1,38 @@
-# Created by https://www.toptal.com/developers/gitignore/api/c++
-# Edit at https://www.toptal.com/developers/gitignore?templates=c++
-
-### C++ ###
-# Prerequisites
+# Compiled output
 *.d
-
-# Compiled Object files
-*.slo
-*.lo
 *.o
 *.obj
-
-# Precompiled Headers
 *.gch
 *.pch
-
-# Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
 *.a
 *.lib
-
-# Executables
+*.lai
+*.la
 *.exe
 *.out
 *.app
+*.dSYM/
 servio
 
-# End of https://www.toptal.com/developers/gitignore/api/c++
+# Build directories
+build/
 
-# ignore prefixed files with ign_*
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (runtime-generated)
+logs/*.log
+
+# Project convention: ignore prefixed scratch files
 ign_*
-
-
-# ignore the html folder
-html/*
