@@ -45,7 +45,7 @@ void CGI::init() {
 	metaVariables.add("PATH_INFO", _pathInfo);
 
 	for (Request::headerIter it = _req->getHeaders().begin(); it != _req->getHeaders().end(); ++it)
-		metaVariables["HTTP_" + it->first] = it->second;
+		metaVariables.setAll("HTTP_" + it->first, it->second);
 }
 
 void CGI::setenv() {
