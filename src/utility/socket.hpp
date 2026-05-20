@@ -19,7 +19,7 @@
 typedef int sockfd;
 
 // `listen(2)` backlog used by `Socket::listen()`.
-#define BACKLOG 10
+static const int BACKLOG = 10;
 
 using namespace std;
 

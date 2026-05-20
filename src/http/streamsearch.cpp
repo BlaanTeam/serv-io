@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+using namespace std;
+
 StreamSearch::Sink::~Sink() {}
 
 StreamSearch::StreamSearch() : _matchPos(0), _matched(false), _sink(nullptr) {}

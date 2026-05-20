@@ -5,8 +5,6 @@
 #include <string>
 #include <vector>
 
-using namespace std;
-
 // Streaming needle search inspired by https://www.npmjs.com/package/streamsearch
 // (Boyer-Moore-Horspool variant that handles needles spanning chunk boundaries).
 //
@@ -34,7 +32,7 @@ class StreamSearch {
 	StreamSearch();
 	~StreamSearch();
 
-	void init(const string& needle, Sink* sink);
+	void init(const std::string& needle, Sink* sink);
 
 	// Push bytes through the search. Returns number of bytes from `buf` that were
 	// consumed. On a match, feed stops at the byte right after the needle, with
@@ -45,15 +43,15 @@ class StreamSearch {
 	void clearMatch();
 	void reset();
 
-	const string& needle() const;
+	const std::string& needle() const;
 
    private:
 	void scan(const char* buf, size_t len, size_t& consumed);
 
-	string         _needle;
-	size_t         _matchPos;   // length of partial-match prefix carried across calls
-	bool           _matched;
-	Sink*          _sink;
+	std::string _needle;
+	size_t      _matchPos;   // length of partial-match prefix carried across calls
+	bool        _matched;
+	Sink*       _sink;
 };
 
 #endif

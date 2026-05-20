@@ -47,8 +47,9 @@ enum RangedLengthState {
 	DONE_LENGTH    = 1 << 2
 };
 
-#define TIMEOUT 15000
-#define CHUNK_SIZE 1024
+// Keep-Alive timeout in milliseconds. Connections idle longer than this
+// are closed by ClientMap::purgeInactiveClients.
+static const int TIMEOUT = 15000;
 
 class ResponseSender;
 class LengthedSender;

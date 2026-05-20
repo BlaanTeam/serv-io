@@ -1,5 +1,7 @@
 #include "line_reader.hpp"
 
+using namespace std;
+
 LineReader::LineReader() {
 	_search.init("\n", this);
 }

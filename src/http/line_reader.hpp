@@ -7,8 +7,6 @@
 #include "./streamsearch.hpp"
 #include "utility/result.hpp"
 
-using namespace std;
-
 // Streaming line scanner. Wraps `StreamSearch` (needle = "\n") with an
 // accumulator + a queue of completed lines.
 //
@@ -31,7 +29,7 @@ class LineReader : private StreamSearch::Sink {
 
 	// Pull the next complete line (CR/LF stripped). None when the
 	// accumulator is mid-line.
-	servio::Option<string> takeLine();
+	servio::Option<std::string> takeLine();
 
 	// Bytes accumulated for the in-flight (incomplete) line. Useful for
 	// enforcing header size caps.
@@ -43,9 +41,9 @@ class LineReader : private StreamSearch::Sink {
 	// StreamSearch::Sink — receives non-needle bytes during scanning.
 	virtual void onData(const char *data, size_t len);
 
-	StreamSearch  _search;
-	string        _pending;
-	deque<string> _ready;
+	StreamSearch            _search;
+	std::string             _pending;
+	std::deque<std::string> _ready;
 };
 
 #endif
