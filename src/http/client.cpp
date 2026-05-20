@@ -1,5 +1,7 @@
 #include "client.hpp"
 
+#include <sys/wait.h>
+
 using namespace std;
 
 Client::Client() {

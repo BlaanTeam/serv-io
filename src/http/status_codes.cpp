@@ -1,5 +1,7 @@
 #include "status_codes.hpp"
 
+#include <sys/stat.h>
+
 using namespace std;
 
 HttpStatusCode::HttpStatusCode() {

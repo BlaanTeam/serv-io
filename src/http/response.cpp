@@ -1,5 +1,6 @@
 #include "response.hpp"
 
+#include <cstdio>      // rename, snprintf
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/socket.h>

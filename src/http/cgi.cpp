@@ -1,6 +1,8 @@
 #include "cgi.hpp"
 
+#include <cstdlib>     // setenv, exit
 #include <strings.h>   // bzero (used transitively via includes elsewhere too)
+#include <unistd.h>    // dup2, close, fork, pipe, execvp, STDIN_FILENO, STDOUT_FILENO, lseek
 
 using namespace std;
 using servio::Result;

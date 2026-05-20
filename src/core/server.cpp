@@ -1,5 +1,9 @@
 #include "server.hpp"
 
+#include <csignal>
+#include <cstdio>      // perror
+#include <sys/socket.h>
+
 #include "utility/result.hpp"
 
 using namespace std;
