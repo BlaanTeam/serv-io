@@ -21,11 +21,21 @@ void ltrim(std::string &value, const std::string &sep = " ");
 void rtrim(std::string &value, const std::string &sep = " ");
 void trim(std::string &value, const std::string &sep = " ");
 
-class StringICaseCompare : std::binary_function<std::string, std::string, bool> {
-	class CharICaseCompare;
-
+// Case-insensitive `std::less`-equivalent suitable for use as a
+// std::map / std::set comparator. `binary_function` was the C++98
+// hook for this; deprecated in C++11, gone in C++17 — typed members
+// do the same job.
+class StringICaseCompare {
    public:
+	using is_transparent = void;   // allow heterogeneous lookups in C++14
+	using first_argument_type  = std::string;
+	using second_argument_type = std::string;
+	using result_type          = bool;
+
 	bool operator()(const std::string &s1, const std::string &s2) const;
+
+   private:
+	class CharICaseCompare;
 };
 
 std::string joinPath(const std::string &parentDir, const std::string &childDir);

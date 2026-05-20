@@ -60,9 +60,9 @@ void trim(string &value, const string &sep) {
 	rtrim(value, sep);
 }
 
-class StringICaseCompare::CharICaseCompare : public binary_function<unsigned char, unsigned char, bool> {
+class StringICaseCompare::CharICaseCompare {
    public:
-	bool operator()(const unsigned char &c1, const unsigned char &c2) const {
+	bool operator()(unsigned char c1, unsigned char c2) const {
 		return ::tolower(c1) < ::tolower(c2);
 	}
 };

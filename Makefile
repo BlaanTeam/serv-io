@@ -19,7 +19,7 @@ VERSION    := 2.0.0-dev
 # ---- Toolchain --------------------------------------------------------------
 
 CXX        ?= c++
-CXXSTD     ?= -std=c++98
+CXXSTD     ?= -std=c++14
 
 # Strict warnings the project has always built with. -Wno-vla because the CGI
 # code uses VLAs intentionally.

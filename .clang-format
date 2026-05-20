@@ -1,6 +1,6 @@
 ---
 BasedOnStyle: Google
-Standard: c++03
+Standard: Cpp11
 IndentWidth: 4
 TabWidth: 4
 UseTab: ForIndentation
