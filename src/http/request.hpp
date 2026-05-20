@@ -6,6 +6,7 @@
 
 #include "./body.hpp"
 #include "./header.hpp"
+#include "./line_reader.hpp"
 #include "./range.hpp"
 #include "./status_codes.hpp"
 #include "utility/helpers.hpp"
@@ -42,16 +43,16 @@ class Request {
 	size_t consume(const char *buf, size_t len);
 
 	// Getters
-	string              getPath(void) const;
-	string              getQuery(void) const;
-	short               getState(void) const;
-	int                 getStatusCode() const;
-	int                 getFileno() const;
-	HttpMethod          getMethod(void) const;
+	string              path(void) const;
+	string              query(void) const;
+	short               state(void) const;
+	int                 statusCode() const;
+	int                 fileno() const;
+	HttpMethod          method(void) const;
 	bool                match(const int &state) const;
-	Header             &getHeaders(void);
-	map<int, BodyFile> &getBodyFiles();
-	Range               getRange();
+	Header             &headers(void);
+	map<int, BodyFile> &bodyFiles();
+	Range               range();
 
 	void reset(void);
 	void closeBodyFile(void);
@@ -60,8 +61,8 @@ class Request {
 	bool isTooLarge(const int &clientMaxSize);
 
    private:
-	void parseRequestLine();
-	void parseHeaderLine();
+	void parseRequestLine(const string &line);
+	void parseHeaderLine(const string &line);
 	void onHeadersComplete();
 
 	void changeState(short state);
@@ -72,7 +73,7 @@ class Request {
 	HttpMethod _method;
 	string     _path;
 	string     _query;
-	string     _line;     // current request line / current header line being assembled
+	LineReader _lineReader;   // drives REQ_LINE + REQ_HEADER phases
 	Header     _headers;
 	Body       _body;
 };

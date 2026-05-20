@@ -4,6 +4,22 @@
 #include <cmath>
 #include <cstring>
 
+namespace {
+
+// Helper functors used with Option::match() in parseRequestLine. C++98
+// can't express closures, so the bind state lives in small structs.
+struct AssignNormalizedPath {
+	string *target;
+	void operator()(const string &normalized) const { *target = normalized; }
+};
+
+struct FlagFailure {
+	bool *failed;
+	void operator()() const { *failed = true; }
+};
+
+}  // namespace
+
 Request::Request()
 	: _state(REQ_INIT),
 	  _statusCode(BAD_REQUEST),
@@ -39,16 +55,20 @@ void Request::fail(short statusCode) {
 
 // --------------------------------------------------------- main feed loop --
 
+// Three parsing regimes:
+//   - REQ_INIT/REQ_LINE/REQ_HEADER: bytes flow through `_lineReader`, which
+//     hands back complete lines for `parseRequestLine` / `parseHeaderLine`.
+//   - REQ_BODY: bytes flow straight into `_body.consume` (the body parser
+//     owns whatever recv chunk remains).
+//   - REQ_DONE / REQ_INVALID: stop.
 size_t Request::consume(const char *buf, size_t len) {
 	if (_state & (REQ_DONE | REQ_INVALID))
 		return 0;
 
 	size_t i = 0;
 	while (i < len) {
-		// REQ_BODY delegates straight to the Body parser, which knows how to
-		// consume large contiguous spans without going through this byte loop.
 		if (_state & REQ_BODY) {
-			size_t used = _body.consume(buf + i, len - i);
+			const size_t used = _body.consume(buf + i, len - i);
 			i += used;
 			if (_body.isError()) {
 				fail(BAD_REQUEST);
@@ -59,50 +79,45 @@ size_t Request::consume(const char *buf, size_t len) {
 			break;  // body parser owns the rest of this chunk
 		}
 
-		char c = buf[i++];
+		// Feed bytes to the line scanner; it stops after the first complete
+		// line so we can react to state transitions between lines (in
+		// particular, the empty header line that hands the rest of the
+		// recv buffer to the body parser).
+		const size_t taken = _lineReader.feed(buf + i, len - i);
+		i += taken;
 
-		if (_state & REQ_INIT) {
-			if (c == '\r' || c == '\n') continue;  // tolerate leading CRLFs
-			_line.clear();
-			_line += c;
-			changeState(REQ_LINE);
+		if (_lineReader.pendingSize() >= REQ_MAX_HEADER_LINE) {
+			fail((_state & REQ_LINE) ? REQUEST_URI_TOO_LONG : BAD_REQUEST);
+			return i;
+		}
+
+		const servio::Option<string> next = _lineReader.takeLine();
+		if (next.isNone()) {
+			if (taken == 0) break;   // need more bytes from the next recv
 			continue;
 		}
 
-		if (_line.size() >= REQ_MAX_HEADER_LINE) {
-			fail(_state & REQ_LINE ? REQUEST_URI_TOO_LONG : BAD_REQUEST);
-			return i;
+		const string line = next.unwrap();
+
+		if (_state & REQ_INIT) {
+			if (line.empty()) continue;   // tolerate leading blank lines
+			changeState(REQ_LINE);
 		}
-		_line += c;
 
-		// Lines terminate on LF; CRLF is supported because the trailing CR was
-		// included in _line — strip it before parsing.
-		if (c == '\n') {
-			size_t end = _line.size();
-			if (end >= 2 && _line[end - 2] == '\r') {
-				_line.erase(end - 2);
-			} else {
-				_line.erase(end - 1);
-			}
+		if (_state & REQ_LINE) {
+			parseRequestLine(line);
+			if (_state & REQ_INVALID) return i;
+			continue;
+		}
 
-			if (_state & REQ_LINE) {
-				parseRequestLine();
-				_line.clear();
+		if (_state & REQ_HEADER) {
+			if (line.empty()) {
+				onHeadersComplete();
 				if (_state & REQ_INVALID) return i;
-			} else if (_state & REQ_HEADER) {
-				if (_line.empty()) {
-					onHeadersComplete();
-					_line.clear();
-					if (_state & (REQ_INVALID | REQ_DONE | REQ_BODY)) {
-						if (_state & REQ_INVALID) return i;
-						continue;
-					}
-				} else {
-					parseHeaderLine();
-					_line.clear();
-					if (_state & REQ_INVALID) return i;
-				}
+				continue;  // outer loop now dispatches to REQ_BODY branch
 			}
+			parseHeaderLine(line);
+			if (_state & REQ_INVALID) return i;
 		}
 	}
 	return i;
@@ -112,27 +127,30 @@ size_t Request::consume(const char *buf, size_t len) {
 
 // Splits the request line on the two single-spaces required by RFC 9112:
 //   METHOD SP REQUEST-URI SP HTTP-VERSION
-void Request::parseRequestLine() {
-	size_t sp1 = _line.find(' ');
+void Request::parseRequestLine(const string &line) {
+	const size_t sp1 = line.find(' ');
 	if (sp1 == string::npos) return fail(BAD_REQUEST);
-	size_t sp2 = _line.find(' ', sp1 + 1);
+	const size_t sp2 = line.find(' ', sp1 + 1);
 	if (sp2 == string::npos) return fail(BAD_REQUEST);
 
-	string method = _line.substr(0, sp1);
-	string uri = _line.substr(sp1 + 1, sp2 - sp1 - 1);
-	string version = _line.substr(sp2 + 1);
+	const string method  = line.substr(0, sp1);
+	const string uri     = line.substr(sp1 + 1, sp2 - sp1 - 1);
+	const string version = line.substr(sp2 + 1);
 
 	if (uri.size() > REQ_MAX_URI) return fail(REQUEST_URI_TOO_LONG);
 	if (version != HTTP_VERSION) return fail(BAD_REQUEST);
 	if (method.empty() || !every(method, ::isupper)) return fail(BAD_REQUEST);
 
-	size_t q = uri.find('?');
-	string path = (q == string::npos) ? uri : uri.substr(0, q);
+	const size_t q = uri.find('?');
+	const string path = (q == string::npos) ? uri : uri.substr(0, q);
 	if (q != string::npos) _query = uri.substr(q + 1);
 
-	servio::Option<string> normalized = normpath(path);
-	if (normalized.isNone()) return fail(BAD_REQUEST);
-	_path = normalized.unwrap();
+	// Rust-style fold: assign on Some, mark failure on None.
+	bool                pathInvalid = false;
+	AssignNormalizedPath onOk = { &_path };
+	FlagFailure          onErr = { &pathInvalid };
+	normpath(path).match(onOk, onErr);
+	if (pathInvalid) return fail(BAD_REQUEST);
 
 	int idx = 0;
 	while (idx < httpMethodCount && httpMethods[idx] != method) ++idx;
@@ -142,12 +160,12 @@ void Request::parseRequestLine() {
 	changeState(REQ_HEADER);
 }
 
-void Request::parseHeaderLine() {
-	size_t colon = _line.find(':');
+void Request::parseHeaderLine(const string &line) {
+	const size_t colon = line.find(':');
 	if (colon == string::npos || colon == 0) return fail(BAD_REQUEST);
 
-	string key = _line.substr(0, colon);
-	string value = _line.substr(colon + 1);
+	string key   = line.substr(0, colon);
+	string value = line.substr(colon + 1);
 	trim(key);
 	trim(value);
 	_headers.add(key, value);
@@ -165,31 +183,32 @@ void Request::onHeadersComplete() {
 
 // ------------------------------------------------------------ getters etc --
 
-string Request::getPath(void) const { return _path; }
-string Request::getQuery(void) const { return _query; }
-short  Request::getState(void) const { return _state; }
-int    Request::getStatusCode() const { return _statusCode; }
-int    Request::getFileno() const { return _body.fileno(); }
-HttpMethod Request::getMethod(void) const { return _method; }
+string Request::path(void) const { return _path; }
+string Request::query(void) const { return _query; }
+short  Request::state(void) const { return _state; }
+int    Request::statusCode() const { return _statusCode; }
+int    Request::fileno() const { return _body.fileno(); }
+HttpMethod Request::method(void) const { return _method; }
 
-Header             &Request::getHeaders(void) { return _headers; }
-map<int, BodyFile> &Request::getBodyFiles() { return _body.bodyFiles(); }
+Header             &Request::headers(void) { return _headers; }
+map<int, BodyFile> &Request::bodyFiles() { return _body.bodyFiles(); }
 
 bool Request::valid() const { return !(_state & REQ_INVALID); }
 
 bool Request::isTooLarge(const int &clientMaxSize) {
-	string value = _headers.get("Content-Length");
-	if (value.empty()) return false;
-	if (!every(value, ::isdigit)) return false;
-	return atoll(value.c_str()) > clientMaxSize;
+	const servio::Option<string> value = _headers.get("Content-Length");
+	if (value.isNone()) return false;
+	const string &v = value.unwrap();
+	if (!every(v, ::isdigit)) return false;
+	return atoll(v.c_str()) > clientMaxSize;
 }
 
 bool Request::match(const int &state) const { return _state & state; }
 
-Range Request::getRange() {
-	const string value = _headers.get("Range");
-	if (value.empty()) return Range();
-	return Range::parse(value).unwrapOr(Range());
+Range Request::range() {
+	const servio::Option<string> value = _headers.get("Range");
+	if (value.isNone()) return Range();
+	return Range::parse(value.unwrap()).unwrapOr(Range());
 }
 
 void Request::reset(void) {
@@ -198,7 +217,7 @@ void Request::reset(void) {
 	_statusCode = BAD_REQUEST;
 	_path.clear();
 	_query.clear();
-	_line.clear();
+	_lineReader.reset();
 	_headers.clear();
 	_body.reset();
 }
