@@ -42,6 +42,7 @@ Response::Response() {
 	_keepAlive = true;
 	_lengthState = INIT_LENGTH;
 	_stream = nullptr;
+	_sender = nullptr;
 	_fileFd = -1;
 	_filePos = 0;
 	_fileLen = 0;
@@ -54,6 +55,7 @@ Response::Response(const short &statusCode, bool keepAlive) {
 	_statusCode = statusCode;
 	_keepAlive = keepAlive;
 	_stream = nullptr;
+	_sender = nullptr;
 	_fileFd = -1;
 	_filePos = 0;
 	_fileLen = 0;
@@ -64,6 +66,7 @@ Response::Response(const short &statusCode, bool keepAlive) {
 
 Response::Response(const Response &copy) {
 	_stream = nullptr;
+	_sender = nullptr;
 	_fileFd = -1;
 	_filePos = 0;
 	_fileLen = 0;
@@ -78,12 +81,16 @@ Response &Response::operator=(const Response &rhs) {
 		_type = rhs._type;
 		_headers = rhs._headers;
 		_isCustomStatusCode = rhs._isCustomStatusCode;
+		// `_sender` is intentionally not copied — sender ownership stays
+		// with the source; the destination needs a fresh strategy chosen by
+		// its own setup pass.
 	}
 	return *this;
 }
 
 Response::~Response() {
 	delete _stream;
+	delete _sender;
 	if (_fileFd >= 0) close(_fileFd);
 }
 
@@ -143,105 +150,99 @@ void Response::addHeader(const string &name, const string &value) {
 	setState(RES_HEADER);
 }
 void Response::send(const sockfd &fd) {
+	if (!_sender)
+		return;
+
 	if (_state & (RES_INIT | RES_HEADER)) {
-		if (_type & LENGTHED_RES)
-			setupLengthedBody();
-		else if (_type & CHUNKED_RES)
-			setupChunkedBody();
-		else if (_type & RANGED_RES)
-			setupRangedBody();
-		else if (_type & CGI_RES) {
-			if (!_req->match(REQ_DONE) || !setupCGIBody())
-				return;
-		} else if (_type & UPLOAD_RES) {
-			if (!setupUploadBody())  // ? this function will return true in case of the REQ_DONE
-				return;
-		}
+		if (!_sender->prepareHeaders(*this))
+			return;  // sender wants to defer — try again on the next poll
 		prepare();
 		::send(fd, _ss.str().c_str(), _ss.str().size(), 0);
 		::send(fd, CRLF, 2, 0);
 		setState(RES_BODY);
 	}
 
-	// if ((_statusCode / 100) == 1 || _statusCode == 204 || _statusCode == 301)
-	// 	return setState(RES_DONE);
-
 	if (_state & RES_BODY)
-		switch (_type) {
-		case LENGTHED_RES:
-			sendLengthedBody(fd);
-			break;
-		case CHUNKED_RES:
-			sendChunkedBody(fd);
-			break;
-		case RANGED_RES:
-			sendRangedBody(fd);
-			break;
-		case CGI_RES:
-			sendCGIBody(fd);
-			break;
-		case UPLOAD_RES:
-			sendUploadBody(fd);
-			break;
-		}
+		_sender->sendBody(*this, fd);
 }
 
-void Response::setupErrorResponse(const int &statusCode, MainContext<Type> *ctx, bool isBuiltIn) {
-	_type = LENGTHED_RES;
-	setStatusCode(statusCode);
-	setConnectionStatus(false);
-	init();
-	addHeader("Content-Type", mimeTypes["html"]);
+// Pick the body source for an error response: a configured error_page when
+// present (and accessible), with sensible 404/403 fallbacks; otherwise the
+// project's built-in error HTML.
+static iostream *resolveErrorBody(int statusCode,
+                                  MainContext<Type> *ctx,
+                                  string &outContentType,
+                                  bool isBuiltIn,
+                                  int *nextFallback /* in/out: status to retry with */) {
+	*nextFallback = 0;
 
 	if (ctx) {
 		ErrorPage *errPage = ctx->getErrorPage(statusCode);
 		if (errPage) {
-			if (!errPage->exists() && isBuiltIn)
-				setupErrorResponse(NOT_FOUND, ctx, false);
-			else if (!errPage->exists()) {
-				if (errno == EACCES && !isBuiltIn)
-					return setupErrorResponse(FORBIDDEN, ctx, true);
-				setStream(buildResponseBody(NOT_FOUND));
-			} else {
-				addHeader("Content-Type", mimeTypes.choiceMimeType(errPage->page));
-				setStream(new fstream(errPage->page, ios::in));
+			if (!errPage->exists()) {
+				if (isBuiltIn) {
+					*nextFallback = NOT_FOUND;
+					return NULL;
+				}
+				if (errno == EACCES) {
+					*nextFallback = FORBIDDEN;
+					return NULL;
+				}
+				return buildResponseBody(NOT_FOUND);
 			}
-			return;
+			outContentType = mimeTypes.choiceMimeType(errPage->page);
+			return new fstream(errPage->page.c_str(), ios::in);
 		}
 	}
-	setStream(buildResponseBody(statusCode));
+	return buildResponseBody(statusCode);
+}
+
+void Response::setupErrorResponse(const int &statusCode, MainContext<Type> *ctx, bool isBuiltIn) {
+	string    contentType = mimeTypes["html"];
+	int       fallback = 0;
+	iostream *bodyStream = resolveErrorBody(statusCode, ctx, contentType, isBuiltIn, &fallback);
+	if (fallback) {
+		return setupErrorResponse(fallback, ctx, fallback == FORBIDDEN);
+	}
+
+	build()
+		.asLengthed()
+		.status(statusCode)
+		.keepAlive(false)
+		.contentType(contentType)
+		.body(bodyStream)
+		.apply();
 }
 
 void Response::setupRedirectResponse(Redirect *redir, MainContext<Type> *ctx) {
-	_type = LENGTHED_RES;
 	redir->prepare(ctx);
 
-	setStatusCode(redir->code);
-	init();
-	addHeader("Content-Type", mimeTypes["html"]);
+	Builder b = build();
+	b.asLengthed().status(redir->code);
 
 	if (redir->isRedirect) {
-		addHeader("Location", redir->path);
-		setStream(buildResponseBody(redir->code));
-		return;
+		b.contentType(mimeTypes["html"])
+		 .header("Location", redir->path)
+		 .body(buildResponseBody(redir->code));
+	} else {
+		iostream *ss = new stringstream;
+		*ss << redir->path;
+		b.contentType(mimeTypes[""]).body(ss);
 	}
-	addHeader("Content-Type", mimeTypes[""]);
-	iostream *ss = new stringstream;
-	(*ss) << redir->path;
-	setStream(ss);
+	b.apply();
 }
 
 void Response::setupDirectoryListing(const string &path, const string &title) {
-	_type = LENGTHED_RES;
-	setStatusCode(200);
-	setConnectionStatus(true);
-	init();
-	addHeader("Content-Type", mimeTypes["html"]);
-	setStream(buildDirectoryListing(path, title));
+	build()
+		.asLengthed()
+		.status(OK)
+		.contentType(mimeTypes["html"])
+		.body(buildDirectoryListing(path, title))
+		.apply();
 }
 
 bool Response::setupNormalResponse(const string &path) {
-	int fd = ::open(path.c_str(), O_RDONLY);
+	const int fd = ::open(path.c_str(), O_RDONLY);
 	if (fd < 0)
 		return false;
 	struct stat st;
@@ -252,10 +253,13 @@ bool Response::setupNormalResponse(const string &path) {
 	_fileFd = fd;
 	_filePos = 0;
 	_fileLen = st.st_size;
-	setStatusCode(200);
-	setConnectionStatus(true);
-	init();
-	addHeader("Content-Type", mimeTypes.choiceMimeType(path));
+
+	// Don't override `_type` here — it has already been set by
+	// `extractRange()` to either LENGTHED_RES or RANGED_RES.
+	build()
+		.status(OK)
+		.contentType(mimeTypes.choiceMimeType(path))
+		.apply();
 	return true;
 }
 
@@ -286,12 +290,9 @@ void Response::changeState(const int &state) {
 }
 
 void Response::setupCGIResponse(const int &fd, Request *req) {
-	_type = CGI_RES;
-	_fd = fd;
-	_req = req;
-
-	setStatusCode(OK);
-	setConnectionStatus(true);
+	build().cgi(fd, req);
+	// Note: no `.apply()` — the standard header bundle gets emitted later
+	// by setupCGIBody once the CGI child's own headers are parsed.
 }
 
 bool Response::match(const int &state) const {
@@ -299,17 +300,15 @@ bool Response::match(const int &state) const {
 }
 
 void Response::reset(void) {
-	// clear the headers
 	_headers.clear();
-
-	// clear the stringstream
 	_ss.str("");
 	_ss.clear();
-
 	_lengthState = INIT_LENGTH;
 
 	delete _stream;
 	_stream = nullptr;
+	delete _sender;
+	_sender = nullptr;
 	if (_fileFd >= 0) {
 		close(_fileFd);
 		_fileFd = -1;
@@ -524,18 +523,19 @@ void Response::sendCGIBody(const sockfd &fd) {
 }
 
 void Response::extractRange(Request &req) {
-	_type = LENGTHED_RES;
 	_range = req.getRange();
-	if (!_range.empty())
-		_type = RANGED_RES;
+	delete _sender;
+	if (_range.empty()) {
+		_sender = new LengthedSender();
+		_type   = LENGTHED_RES;
+	} else {
+		_sender = new RangedSender();
+		_type   = RANGED_RES;
+	}
 }
 
 void Response::setupUploadResponse(LocationContext<Type> *location, Request *req) {
-	_type = UPLOAD_RES;
-	_location = location;
-	_req = req;
-	setStatusCode(CREATED);
-	setConnectionStatus(true);
+	build().upload(location, req);
 	changeState(RES_HEADER);
 }
 
@@ -576,4 +576,77 @@ void Response::sendUploadBody(const sockfd &fd) {
 	_stream->read(buff, (1 << 10));
 	::send(fd, buff, _stream->gcount(), 0);
 	setState(_stream->eof() ? RES_DONE : _state);
+}
+// =================================================================== Builder
+//
+// Fluent setup. Each setter mutates the wrapped Response directly; `apply()`
+// emits the standard header bundle (Server/Date/Connection/Keep-Alive/
+// Accept-Ranges) and leaves the response ready for send().
+
+Response::Builder Response::build() {
+	return Builder(*this);
+}
+
+Response::Builder::Builder(Response &target) : _r(target) {}
+
+Response::Builder &Response::Builder::status(int code) {
+	_r._statusCode = (short)code;
+	return *this;
+}
+
+Response::Builder &Response::Builder::keepAlive(bool keep) {
+	_r._keepAlive = keep;
+	return *this;
+}
+
+Response::Builder &Response::Builder::contentType(const string &value) {
+	_r._headers.add("Content-Type", value);
+	return *this;
+}
+
+Response::Builder &Response::Builder::header(const string &name, const string &value) {
+	_r._headers.add(name, value);
+	return *this;
+}
+
+Response::Builder &Response::Builder::body(iostream *stream) {
+	_r._stream = stream;
+	return *this;
+}
+
+// Each `asXxx` swaps in the matching sender strategy. The old sender (if
+// any) is freed first; this is safe because the Builder only runs during
+// setup, before send() consults the sender.
+#define INSTALL_SENDER(SenderType, TypeTag)               \
+	do {                                                  \
+		delete _r._sender;                                \
+		_r._sender = new SenderType();                    \
+		_r._type   = TypeTag;                             \
+	} while (0)
+
+Response::Builder &Response::Builder::asLengthed() { INSTALL_SENDER(LengthedSender, LENGTHED_RES); return *this; }
+Response::Builder &Response::Builder::asChunked()  { INSTALL_SENDER(ChunkedSender,  CHUNKED_RES);  return *this; }
+Response::Builder &Response::Builder::asRanged()   { INSTALL_SENDER(RangedSender,   RANGED_RES);   return *this; }
+Response::Builder &Response::Builder::asCGI()      { INSTALL_SENDER(CGISender,      CGI_RES);      return *this; }
+Response::Builder &Response::Builder::asUpload()   { INSTALL_SENDER(UploadSender,   UPLOAD_RES);   return *this; }
+
+#undef INSTALL_SENDER
+
+Response::Builder &Response::Builder::cgi(int childFd, Request *req) {
+	asCGI();
+	_r._fd  = childFd;
+	_r._req = req;
+	return status(OK).keepAlive(true);
+}
+
+Response::Builder &Response::Builder::upload(LocationContext<Type> *location, Request *req) {
+	asUpload();
+	_r._location = location;
+	_r._req      = req;
+	return status(CREATED).keepAlive(true);
+}
+
+void Response::Builder::apply() {
+	_r.init();
+	_r.setState(RES_HEADER);
 }

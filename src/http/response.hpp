@@ -13,6 +13,7 @@
 #include "./mime_types.hpp"
 #include "./range.hpp"
 #include "./request.hpp"
+#include "./response_sender.hpp"
 #include "./status_codes.hpp"
 #include "core/ast.hpp"
 #include "utility/helpers.hpp"
@@ -49,7 +50,21 @@ enum RangedLengthState {
 #define TIMEOUT 15000
 #define CHUNK_SIZE 1024
 
+class ResponseSender;
+class LengthedSender;
+class ChunkedSender;
+class RangedSender;
+class CGISender;
+class UploadSender;
+
 class Response {
+	friend class ResponseSender;
+	friend class LengthedSender;
+	friend class ChunkedSender;
+	friend class RangedSender;
+	friend class CGISender;
+	friend class UploadSender;
+
 	stringstream _ss;
 
 	bool   _isCustomStatusCode;
@@ -59,6 +74,9 @@ class Response {
 	short  _state;
 	int    _length;
 	short  _lengthState;
+
+	// Strategy: body-delivery is delegated to a sender chosen at setup time.
+	ResponseSender *_sender;
 
 	iostream *_stream;
 	int       _fd;
@@ -114,6 +132,44 @@ class Response {
 	bool match(const int &state) const;
 
 	void reset(void);
+
+	// ----------------------------------------------------------- Builder ---
+	//
+	// Fluent setup for Response. The plain `setStatusCode`/`addHeader`/...
+	// methods still work, but the setup helpers below (setupErrorResponse,
+	// setupRedirectResponse, ...) compose a `Builder` instead of mutating
+	// state via half a dozen individual calls. Each builder method returns
+	// *this so callers can chain, and `apply()` emits the project's standard
+	// header bundle (Server/Date/Connection/Keep-Alive/Accept-Ranges).
+	class Builder {
+	   public:
+		explicit Builder(Response &target);
+
+		Builder &status(int code);
+		Builder &keepAlive(bool keep = true);
+		Builder &contentType(const string &value);
+		Builder &header(const string &name, const string &value);
+		Builder &body(iostream *stream);
+		Builder &asLengthed();
+		Builder &asChunked();
+		Builder &asRanged();
+		Builder &asCGI();
+		Builder &asUpload();
+
+		// Higher-level convenience for the two senders that need extra
+		// request-side context (the CGI child fd, the upload's destination
+		// location). They install the matching sender, attach the context,
+		// and pick a sensible status.
+		Builder &cgi(int childFd, Request *req);
+		Builder &upload(LocationContext<Type> *location, Request *req);
+
+		void apply();
+
+	   private:
+		Response &_r;
+	};
+
+	Builder build();
 
    private:
 	void sendLengthedBody(const sockfd &fd);
