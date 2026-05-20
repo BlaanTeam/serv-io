@@ -8,8 +8,6 @@
 #include "utility/helpers.hpp"
 #include "utility/result.hpp"
 
-using namespace std;
-
 enum UnitType {
 	NON = (1 << 0),
 	NOF = (1 << 1),
@@ -17,13 +15,13 @@ enum UnitType {
 };
 
 struct RangeSpecifier {
-	size_t   rangeStart;
-	size_t   rangeEnd;
-	UnitType type;
+	std::size_t rangeStart;
+	std::size_t rangeEnd;
+	UnitType    type;
 
-	size_t contentLength(iostream *stream);
-	size_t contentLength(size_t fileSize);
-	void   setupSeek(iostream *stream);
+	std::size_t contentLength(std::iostream *stream);
+	std::size_t contentLength(std::size_t fileSize);
+	void        setupSeek(std::iostream *stream);
 };
 
 class Range {
@@ -32,17 +30,17 @@ class Range {
 	// `Ok(range)` on success, `Err(reason)` on protocol mismatch or bad
 	// syntax. A request without a `Range:` header should never reach this
 	// function; callers must check the header is present first.
-	static servio::Result<Range, string> parse(const string &headerValue);
+	static servio::Result<Range, std::string> parse(const std::string &headerValue);
 
-	Range();                                       // empty range (no specifiers)
+	Range();   // empty range (no specifiers)
 
-	const vector<RangeSpecifier> &specifiers() const;
-	bool                          empty() const;
+	const std::vector<RangeSpecifier> &specifiers() const;
+	bool                               empty() const;
 
    private:
-	static servio::Result<RangeSpecifier, string> parseOne(const string &spec);
+	static servio::Result<RangeSpecifier, std::string> parseOne(const std::string &spec);
 
-	vector<RangeSpecifier> _specs;
+	std::vector<RangeSpecifier> _specs;
 };
 
 #endif

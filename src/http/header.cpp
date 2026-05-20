@@ -1,5 +1,7 @@
 #include "header.hpp"
 
+using namespace std;
+
 void Header::add(const string &key, const string &value) {
 	_entries[key].insert(value);
 }

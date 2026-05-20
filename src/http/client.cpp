@@ -1,5 +1,7 @@
 #include "client.hpp"
 
+using namespace std;
+
 Client::Client() {
 	_fds[0] = -1;
 	_fds[1] = -1;

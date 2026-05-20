@@ -1,5 +1,7 @@
 #include "parser.hpp"
 
+using namespace std;
+
 // Public member functions
 
 Parser::Parser(ifstream &cfile) {

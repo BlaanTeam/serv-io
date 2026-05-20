@@ -8,8 +8,6 @@
 
 #include "./header.hpp"
 
-using namespace std;
-
 class BodyParser;
 
 // One per-part file produced by the multipart parser. Owns the FILE* and a
@@ -21,17 +19,17 @@ class BodyFile {
 	BodyFile();
 	~BodyFile();
 
-	void   adoptFile(FILE *file, const string &filename);
-	void   addHeader(const string &key, const string &value);
-	void   write(const char *data, size_t len);
+	void        adoptFile(FILE *file, const std::string &filename);
+	void        addHeader(const std::string &key, const std::string &value);
+	void        write(const char *data, std::size_t len);
 
-	FILE  *file();
-	string tmpPath() const;          // server-side tmp path (e.g., /tmp/.servio_*.io)
-	string clientFilename();         // filename advertised by the client (Content-Disposition)
+	FILE       *file();
+	std::string tmpPath() const;        // server-side tmp path (e.g., /tmp/.servio_*.io)
+	std::string clientFilename();       // filename advertised by the client (Content-Disposition)
 
    private:
-	FILE  *_file;
-	string _filename;
+	FILE       *_file;
+	std::string _filename;
 };
 
 // Streaming HTTP body coordinator. Picks one of three BodyParser strategies
@@ -50,13 +48,13 @@ class Body {
 	void chooseStrategy(Header &headers);
 
 	// Feed bytes from the socket. Returns bytes consumed.
-	size_t consume(const char *buf, size_t len);
+	std::size_t consume(const char *buf, std::size_t len);
 
 	bool isDone()  const;
 	bool isError() const;
 
-	int                 fileno() const;
-	map<int, BodyFile> &bodyFiles();
+	int                           fileno() const;
+	std::map<int, BodyFile>      &bodyFiles();
 
 	void closeFile();
 	void reset();
@@ -65,12 +63,12 @@ class Body {
 	void openTmpFile();
 	void destroyParser();
 
-	BodyParser        *_parser;
-	FILE              *_bodyFile;
-	string             _bodyFilePath;
-	map<int, BodyFile> _bodyFiles;
-	bool               _strategyChosen;
-	bool               _noBody;       // headers picked no parser at all
+	BodyParser              *_parser;
+	FILE                    *_bodyFile;
+	std::string              _bodyFilePath;
+	std::map<int, BodyFile>  _bodyFiles;
+	bool                     _strategyChosen;
+	bool                     _noBody;   // headers picked no parser at all
 };
 
 #endif

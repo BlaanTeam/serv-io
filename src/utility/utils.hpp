@@ -8,11 +8,9 @@
 #include "core/ast.hpp"
 #include "utility/helpers.hpp"
 
-using namespace std;
+void dumpConfigDot(MainContext<> *main, std::ostream &stream = std::cout);
 
-void dumpConfigDot(MainContext<> *main, ostream &stream = cout);
-
-string    getUTCDate(void);
-long long getmstime(void);
+std::string getUTCDate(void);
+long long   getmstime(void);
 
 #endif

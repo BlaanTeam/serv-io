@@ -2,6 +2,8 @@
 
 #include <sstream>
 
+using namespace std;
+
 Boundary::Boundary() {}
 Boundary::Boundary(const string &value) : _value(value) {}
 

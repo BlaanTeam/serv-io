@@ -8,30 +8,28 @@
 
 #include "result.hpp"
 
-using namespace std;
-
 #include "helpers.tpp"
 
 // Normalize a path: collapses "." segments, applies "..", rejects paths that
 // would escape the root. Returns None on invalid input, Some(normalized) on
 // success. Trailing slash semantics are preserved.
-servio::Option<string> normpath(const string &path, const char sep = '/');
+servio::Option<std::string> normpath(const std::string &path, const char sep = '/');
 
-bool iequalString(const string &s1, const string &s2);
+bool iequalString(const std::string &s1, const std::string &s2);
 
-void ltrim(string &value, const string &sep = " ");
-void rtrim(string &value, const string &sep = " ");
-void trim(string &value, const string &sep = " ");
+void ltrim(std::string &value, const std::string &sep = " ");
+void rtrim(std::string &value, const std::string &sep = " ");
+void trim(std::string &value, const std::string &sep = " ");
 
-class StringICaseCompare : binary_function<string, string, bool> {
+class StringICaseCompare : std::binary_function<std::string, std::string, bool> {
 	class CharICaseCompare;
 
    public:
 	bool operator()(const std::string &s1, const std::string &s2) const;
 };
 
-string joinPath(const string &parentDir, const string &childDir);
+std::string joinPath(const std::string &parentDir, const std::string &childDir);
 
-size_t getFileSize(iostream *stream);
+std::size_t getFileSize(std::iostream *stream);
 
 #endif

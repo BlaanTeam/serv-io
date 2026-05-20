@@ -13,14 +13,12 @@
 #include "./router.hpp"
 #include "core/config.hpp"
 
-using namespace std;
-
 class Client {
-	pollfd               *_pfd;
-	pair<sockfd, Address> _connection;
-	long long             _time;
-	Request               _req;
-	Response              _res;
+	pollfd                    *_pfd;
+	std::pair<sockfd, Address> _connection;
+	long long                  _time;
+	Request                    _req;
+	Response                   _res;
 
 	MainContext<Type> *_ctx;
 
@@ -29,7 +27,7 @@ class Client {
 
    public:
 	Client();
-	Client(const pair<sockfd, Address> &connection);
+	Client(const std::pair<sockfd, Address> &connection);
 	~Client();
 
 	// Setters
@@ -39,7 +37,7 @@ class Client {
 	// Getters
 	bool timedOut() const;
 
-	bool handleRequest(const char *buf, size_t len);
+	bool handleRequest(const char *buf, std::size_t len);
 
 	void handleResponse(const sockfd &fd);
 
@@ -60,10 +58,10 @@ class Client {
 	void resolveResponse(VirtualServer *virtualServer);
 };
 
-class ClientMap : public map<sockfd, Client> {
+class ClientMap : public std::map<sockfd, Client> {
 	PollFd *_pfds;
 
-	const vector<sockfd> getInactiveClients(void);
+	const std::vector<sockfd> getInactiveClients(void);
 
    public:
 	ClientMap();

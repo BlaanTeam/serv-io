@@ -1,5 +1,7 @@
 #include "lexer.hpp"
 
+using namespace std;
+
 const char *TokenNames[8] = {
     "WORD",
     "OPEN CURLY BRACE",

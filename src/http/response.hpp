@@ -20,8 +20,6 @@
 #include "utility/socket.hpp"
 #include "utility/utils.hpp"
 
-using namespace std;
-
 // Response writer state. Flags are bitwise-combined and tested with &.
 enum ResponseState {
 	RES_INIT   = 1 << 0,
@@ -66,28 +64,28 @@ class Response {
 	friend class CGISender;
 	friend class UploadSender;
 
-	stringstream _headerBuffer;
+	std::stringstream _headerBuffer;
 
-	bool   _isCustomStatusCode;
-	short  _statusCode;
-	string _statusStringCode;
-	short  _type;
-	short  _state;
-	int    _length;
-	short  _rangePhase;
+	bool        _isCustomStatusCode;
+	short       _statusCode;
+	std::string _statusStringCode;
+	short       _type;
+	short       _state;
+	int         _length;
+	short       _rangePhase;
 
 	// Strategy: body-delivery is delegated to a sender chosen at setup time.
 	ResponseSender *_sender;
 
-	iostream *_stream;
-	int       _cgiFd;
+	std::iostream *_stream;
+	int            _cgiFd;
 
 	// sendfile() path: when serving a regular file we skip the iostream layer
 	// and ask the kernel to copy file -> socket directly. `_fileFd` is -1 when
 	// the response is in-memory (stringstream-backed) or fstream-backed.
-	int       _fileFd;
-	off_t     _filePos;
-	off_t     _fileLen;
+	int   _fileFd;
+	off_t _filePos;
+	off_t _fileLen;
 
 	Range _range;
 
@@ -111,8 +109,8 @@ class Response {
 
 	void setStatusCode(const short &statusCode);
 	void setState(const int &state);
-	void setStream(iostream *stream);
-	void addHeader(const string &name, const string &value);
+	void setStream(std::iostream *stream);
+	void addHeader(const std::string &name, const std::string &value);
 
 	void extractRange(Request &req);
 	void setConnectionStatus(bool keepAlive = true);
@@ -123,10 +121,10 @@ class Response {
 
 	void setupErrorResponse(const int &statusCode, MainContext<Type> *ctx, bool isBuiltIn = true);
 	void setupRedirectResponse(Redirect *redir, MainContext<Type> *ctx);
-	void setupDirectoryListing(const string &path, const string &title);
+	void setupDirectoryListing(const std::string &path, const std::string &title);
 	// Opens `path` with open(2) and wires the response for sendfile(2) delivery.
 	// Returns false if the file cannot be opened.
-	bool setupNormalResponse(const string &path);
+	bool setupNormalResponse(const std::string &path);
 	void setupCGIResponse(const int &fd, Request *req);
 	void setupUploadResponse(LocationContext<Type> *location, Request *req);
 
@@ -148,9 +146,9 @@ class Response {
 
 		Builder &status(int code);
 		Builder &keepAlive(bool keep = true);
-		Builder &contentType(const string &value);
-		Builder &header(const string &name, const string &value);
-		Builder &body(iostream *stream);
+		Builder &contentType(const std::string &value);
+		Builder &header(const std::string &name, const std::string &value);
+		Builder &body(std::iostream *stream);
 		Builder &asLengthed();
 		Builder &asChunked();
 		Builder &asRanged();
@@ -182,7 +180,7 @@ class Response {
 	void sendRangedBody(const sockfd &fd);
 	void setupRangedBody(void);
 
-	void parseHeaders(stringstream &ss);
+	void parseHeaders(std::stringstream &ss);
 	void changeState(const int &state);
 
 	void sendCGIBody(const sockfd &fd);

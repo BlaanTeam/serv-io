@@ -12,8 +12,6 @@
 #include "utility/helpers.hpp"
 #include "utility/utils.hpp"
 
-using namespace std;
-
 // Request parser state. Flags are bitwise-combined and tested with &.
 enum RequestState {
 	REQ_INIT    = 1 << 0,   // before the first non-whitespace byte
@@ -40,19 +38,19 @@ class Request {
 
 	// Feed bytes received from the client socket. Returns the number of bytes
 	// consumed (may be < len if parsing is complete or invalid).
-	size_t consume(const char *buf, size_t len);
+	std::size_t consume(const char *buf, std::size_t len);
 
 	// Getters
-	string              path(void) const;
-	string              query(void) const;
-	short               state(void) const;
-	int                 statusCode() const;
-	int                 fileno() const;
-	HttpMethod          method(void) const;
-	bool                match(const int &state) const;
-	Header             &headers(void);
-	map<int, BodyFile> &bodyFiles();
-	Range               range();
+	std::string              path(void) const;
+	std::string              query(void) const;
+	short                    state(void) const;
+	int                      statusCode() const;
+	int                      fileno() const;
+	HttpMethod               method(void) const;
+	bool                     match(const int &state) const;
+	Header                  &headers(void);
+	std::map<int, BodyFile> &bodyFiles();
+	Range                    range();
 
 	void reset(void);
 	void closeBodyFile(void);
@@ -61,21 +59,21 @@ class Request {
 	bool isTooLarge(const int &clientMaxSize);
 
    private:
-	void parseRequestLine(const string &line);
-	void parseHeaderLine(const string &line);
+	void parseRequestLine(const std::string &line);
+	void parseHeaderLine(const std::string &line);
 	void onHeadersComplete();
 
 	void changeState(short state);
 	void fail(short statusCode);
 
-	short      _state;
-	short      _statusCode;
-	HttpMethod _method;
-	string     _path;
-	string     _query;
-	LineReader _lineReader;   // drives REQ_LINE + REQ_HEADER phases
-	Header     _headers;
-	Body       _body;
+	short       _state;
+	short       _statusCode;
+	HttpMethod  _method;
+	std::string _path;
+	std::string _query;
+	LineReader  _lineReader;  // drives REQ_LINE + REQ_HEADER phases
+	Header      _headers;
+	Body        _body;
 };
 
 #endif

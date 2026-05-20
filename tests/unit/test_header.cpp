@@ -1,6 +1,8 @@
 #include "framework.hpp"
 #include "http/header.hpp"
 
+using namespace std;
+
 TEST(Header, addAndGetIsCaseInsensitive) {
 	Header h;
 	h.add("Content-Type", "text/plain");

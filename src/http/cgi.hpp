@@ -11,19 +11,17 @@
 #include "core/ast.hpp"
 #include "utility/result.hpp"
 
-using namespace std;
-
 // CGI/1.1 fork+exec helper. Instances are only constructed through
 // `CGI::create()`, which validates that the request path resolves to a
 // script under one of the location's configured cgi_assign extensions and
 // that the script is executable. Returns Err if any of those checks fail.
 class CGI {
    public:
-	string _scriptFileName;
+	std::string _scriptFileName;
 
-	static servio::Result<CGI, string> create(LocationContext<Type> *location,
-	                                          Request               *req,
-	                                          Response              *res);
+	static servio::Result<CGI, std::string> create(LocationContext<Type> *location,
+	                                               Request               *req,
+	                                               Response              *res);
 
 	CGI();   // empty placeholder — Result needs default-constructibility
 
@@ -36,8 +34,8 @@ class CGI {
 	Response              *_res;
 	LocationContext<Type> *_location;
 
-	string _scriptName;
-	string _pathInfo;
+	std::string _scriptName;
+	std::string _pathInfo;
 
 	Header metaVariables;
 };

@@ -13,7 +13,6 @@
 #include "utility/helpers.hpp"
 #include "utility/socket.hpp"
 
-using namespace std;
 
 enum CtxType {
 	httpCtx = 1 << 1,
@@ -33,8 +32,8 @@ enum TypeList {
 };
 
 struct ErrorPage {
-	string pattern, page;
-	ErrorPage(string pattern = "", string page = "");
+	std::string pattern, page;
+	ErrorPage(std::string pattern = "", std::string page = "");
 
 	bool match(const int &errorCode) const;
 	bool exists() const;
@@ -44,14 +43,14 @@ struct ErrorPage {
 
 struct Redirect;
 
-struct ServerName : public vector<string> {
-	ServerName(const vector<string> &vec);
-	bool find(const string &name);
+struct ServerName : public std::vector<std::string> {
+	ServerName(const std::vector<std::string> &vec);
+	bool find(const std::string &name);
 };
 
-struct CgiExtension : public vector<string> {
-	CgiExtension(const vector<string> &vec);
-	bool match(const string &name);
+struct CgiExtension : public std::vector<std::string> {
+	CgiExtension(const std::vector<std::string> &vec);
+	bool match(const std::string &name);
 };
 
 struct Type {
@@ -59,7 +58,7 @@ struct Type {
 	union {
 		long long     value;
 		bool          ok;
-		string       *str;
+		std::string       *str;
 		Address      *addr;
 		ErrorPage    *errPage;
 		Redirect     *redirect;
@@ -73,16 +72,16 @@ struct Type {
 	~Type();
 };
 
-template <class T = vector<string> >
+template <class T = std::vector<std::string> >
 class MainContext {
    protected:
 	CtxType                  _type;
-	vector<MainContext<T> *> _contexts;
-	map<string, T>           _directives;
+	std::vector<MainContext<T> *> _contexts;
+	std::map<std::string, T>           _directives;
 
    public:
-	typedef typename map<string, T>::iterator dirIter;
-	typedef pair<string, T>                   Directive;
+	typedef typename std::map<std::string, T>::iterator dirIter;
+	typedef std::pair<std::string, T>                   Directive;
 
 	MainContext() {}
 
@@ -94,11 +93,11 @@ class MainContext {
 		return _type;
 	}
 
-	map<string, T> &directives() {
+	std::map<std::string, T> &directives() {
 		return _directives;
 	}
 
-	vector<MainContext<T> *> &contexts() {
+	std::vector<MainContext<T> *> &contexts() {
 		return _contexts;
 	}
 
@@ -110,12 +109,12 @@ class MainContext {
 		_directives[dir.first] = dir.second;
 	}
 
-	void rmDirective(const string &dir) {
+	void rmDirective(const std::string &dir) {
 		dirIter it = _directives.find(dir);
 		if (it != _directives.end()) _directives.erase(it);
 	}
 
-	T &operator[](const string &dir) {
+	T &operator[](const std::string &dir) {
 		return _directives[dir];
 	}
 
@@ -129,12 +128,12 @@ template <>
 class MainContext<Type> {
    protected:
 	CtxType                     _type;
-	vector<MainContext<Type> *> _contexts;
-	map<string, Type>           _directives;
+	std::vector<MainContext<Type> *> _contexts;
+	std::map<std::string, Type>           _directives;
 
    public:
-	typedef map<string, Type>::iterator dirIter;
-	typedef pair<string, Type>          Directive;
+	typedef std::map<std::string, Type>::iterator dirIter;
+	typedef std::pair<std::string, Type>          Directive;
 
 	MainContext() {}
 
@@ -146,11 +145,11 @@ class MainContext<Type> {
 		return _type;
 	}
 
-	map<string, Type> &directives() {
+	std::map<std::string, Type> &directives() {
 		return _directives;
 	}
 
-	vector<MainContext<Type> *> &contexts() {
+	std::vector<MainContext<Type> *> &contexts() {
 		return _contexts;
 	}
 
@@ -162,12 +161,12 @@ class MainContext<Type> {
 		_directives[dir.first] = dir.second;
 	}
 
-	void rmDirective(const string &dir) {
+	void rmDirective(const std::string &dir) {
 		dirIter it = _directives.find(dir);
 		if (it != _directives.end()) _directives.erase(it);
 	}
 
-	Type &operator[](const string &dir) {
+	Type &operator[](const std::string &dir) {
 		return _directives[dir];
 	}
 
@@ -190,7 +189,7 @@ class MainContext<Type> {
 		return _directives["cgi_assign"].cgiExt;
 	}
 
-	string uploadStore() {
+	std::string uploadStore() {
 		return *_directives["upload_store"].str;
 	}
 
@@ -211,14 +210,14 @@ class MainContext<Type> {
 
 struct Redirect {
 	int    code;
-	string path;
+	std::string path;
 	bool   isRedirect;
 	bool   isLocal;
-	Redirect(int code = 301, string path = "", bool isLocal = false);
+	Redirect(int code = 301, std::string path = "", bool isLocal = false);
 	void prepare(MainContext<Type> *ctx);
 };
 
-template <class T = vector<string> >
+template <class T = std::vector<std::string> >
 class HttpContext : public MainContext<T> {
    public:
 	HttpContext() {
@@ -231,7 +230,7 @@ class HttpContext : public MainContext<T> {
 	~HttpContext(){};
 };
 
-template <class T = vector<string> >
+template <class T = std::vector<std::string> >
 class ServerContext : public MainContext<T> {
    public:
 	ServerContext() { MainContext<T>::_type = serverCtx; };
@@ -242,22 +241,22 @@ class ServerContext : public MainContext<T> {
 	~ServerContext(){};
 };
 
-template <class T = vector<string> >
+template <class T = std::vector<std::string> >
 class LocationContext : public MainContext<T> {
-	string _loc;
+	std::string _loc;
 
    public:
-	LocationContext(const string &loc = "")
+	LocationContext(const std::string &loc = "")
 	    : _loc(loc) { MainContext<T>::_type = locationCtx; };
 
 	LocationContext(const MainContext<T> *copy)
 	    : MainContext<T>(copy) { MainContext<T>::_type = locationCtx; }
 
-	const string &location() const {
+	const std::string &location() const {
 		return _loc;
 	}
 
-	void setLocation(const string &loc) {
+	void setLocation(const std::string &loc) {
 		_loc = loc;
 	}
 
@@ -265,20 +264,20 @@ class LocationContext : public MainContext<T> {
 };
 template <>
 class LocationContext<Type> : public MainContext<Type> {
-	string _loc;
+	std::string _loc;
 
    public:
-	LocationContext(const string &loc = "")
+	LocationContext(const std::string &loc = "")
 	    : _loc(loc) { MainContext<Type>::_type = locationCtx; };
 
 	LocationContext(const MainContext<Type> *copy)
 	    : MainContext<Type>(copy) { MainContext<Type>::_type = locationCtx; }
 
-	const string &location() const {
+	const std::string &location() const {
 		return _loc;
 	}
 
-	void setLocation(const string &loc) {
+	void setLocation(const std::string &loc) {
 		_loc = loc;
 	}
 
@@ -290,13 +289,13 @@ class LocationContext<Type> : public MainContext<Type> {
 		return _directives["allowed_methods"].value & method;
 	}
 
-	bool found(string &path, struct stat &stat) {
+	bool found(std::string &path, struct stat &stat) {
 		path = (*_directives["root"].str) + path;
 
 		return ::stat(path.c_str(), &stat) == 0;
 	}
 
-	string index(void) {
+	std::string index(void) {
 		return *(_directives["index"].str);
 	}
 
@@ -306,19 +305,19 @@ class LocationContext<Type> : public MainContext<Type> {
 template <>
 class ServerContext<Type> : public MainContext<Type> {
    private:
-	int commonPrefix(const string &s1, const string &s2, int start = 0) {
+	int commonPrefix(const std::string &s1, const std::string &s2, int start = 0) {
 		int ret = start;
 		while (s1[ret] && s2[ret] && s1[ret] == s2[ret])
 			ret++;
 		return ret;
 	}
-	pair<int, LocationContext<Type> *> search(LocationContext<Type> *tree, const string &path, int parentCommonPrefix = 0) {
+	std::pair<int, LocationContext<Type> *> search(LocationContext<Type> *tree, const std::string &path, int parentCommonPrefix = 0) {
 		int currentCommonPrefix = commonPrefix(tree->location(), path, parentCommonPrefix);
 		if (currentCommonPrefix != (int)tree->location().size())
-			return make_pair(-1, nullptr);
-		pair<int, LocationContext<Type> *> ans = make_pair(currentCommonPrefix, tree);
+			return std::make_pair(-1, nullptr);
+		std::pair<int, LocationContext<Type> *> ans = std::make_pair(currentCommonPrefix, tree);
 		for (size_t i = 0; i < tree->contexts().size(); i++) {
-			pair<int, LocationContext<Type> *> p = search((LocationContext<Type> *)tree->contexts()[i], path, currentCommonPrefix);
+			std::pair<int, LocationContext<Type> *> p = search((LocationContext<Type> *)tree->contexts()[i], path, currentCommonPrefix);
 			if (p.first > ans.first)
 				ans = p;
 		}
@@ -331,10 +330,10 @@ class ServerContext<Type> : public MainContext<Type> {
 	ServerContext(const MainContext<Type> *copy)
 	    : MainContext<Type>(copy) { MainContext<Type>::_type = serverCtx; }
 
-	LocationContext<Type> *match(const string &path) {
-		pair<int, LocationContext<Type> *> ans = make_pair(0, nullptr);
+	LocationContext<Type> *match(const std::string &path) {
+		std::pair<int, LocationContext<Type> *> ans = std::make_pair(0, nullptr);
 		for (size_t i = 0; i < _contexts.size(); i++) {
-			pair<int, LocationContext<Type> *> p = search((LocationContext<Type> *)_contexts[i], path);
+			std::pair<int, LocationContext<Type> *> p = search((LocationContext<Type> *)_contexts[i], path);
 			if (p.first > ans.first) {
 				ans = p;
 			}

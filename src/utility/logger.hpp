@@ -10,18 +10,16 @@
 #include "helpers.hpp"
 #include "parser.hpp"
 
-using namespace std;
-
 class Logger {
-	fstream _access;
-	fstream _error;
+	std::fstream _access;
+	std::fstream _error;
 
-	void logTime(fstream &file);
+	void logTime(std::fstream &file);
 
    public:
-	Logger(const string &prefixFolder = PREFIX_FOLDER);
-	void error(const char *file, int line, const string &msg);
-	void notice(const string &msg);
+	Logger(const std::string &prefixFolder = PREFIX_FOLDER);
+	void error(const char *file, int line, const std::string &msg);
+	void notice(const std::string &msg);
 	~Logger();
 };
 

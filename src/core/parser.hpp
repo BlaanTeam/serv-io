@@ -2,41 +2,41 @@
 #define SERVIO_PARSER_HPP
 
 #include "ast.hpp"
-#include "status_codes.hpp"
 #include "lexer.hpp"
+#include "status_codes.hpp"
 
 #ifndef PREFIX_FOLDER
 #define PREFIX_FOLDER ""
 #endif
 
 class Parser {
-	string _serr;
-	Lexer  _lex;
+	std::string _serr;
+	Lexer       _lex;
 
-	typedef pair<string, vector<string> > Directive;
+	typedef std::pair<std::string, std::vector<std::string> > Directive;
 
    private:
 	const Token &current();
-	bool         accept(int type, const string &value = "");
-	bool         expect(int type, const string &value = "");
-	bool         updateDirectives(MainContext<vector<string> > *tree,
-	                              MainContext<vector<string> > *parent = nullptr);
+	bool         accept(int type, const std::string &value = "");
+	bool         expect(int type, const std::string &value = "");
+	bool         updateDirectives(MainContext<std::vector<std::string> > *tree,
+	                              MainContext<std::vector<std::string> > *parent = nullptr);
 
 	Directive *parse_directive(Directive *_dir = nullptr);
 	Directive *parse_http_dir(Directive *_dir = nullptr);
 	Directive *parse_server_dir();
 	Directive *parse_location_dir();
 
-	MainContext<vector<string> > *parse_location();
-	MainContext<vector<string> > *parse_server();
-	MainContext<vector<string> > *parse_main();
+	MainContext<std::vector<std::string> > *parse_location();
+	MainContext<std::vector<std::string> > *parse_server();
+	MainContext<std::vector<std::string> > *parse_main();
 
-	pair<bool, MainContext<Type> *> transfer(MainContext<vector<string> > *tree);
+	std::pair<bool, MainContext<Type> *> transfer(MainContext<std::vector<std::string> > *tree);
 
    public:
-	Parser(ifstream &cfile);
+	Parser(std::ifstream &cfile);
 	MainContext<Type> *parse();
-	const string      &err() const;
+	const std::string &err() const;
 };
 
 #endif

@@ -1,5 +1,7 @@
 #include "status_codes.hpp"
 
+using namespace std;
+
 HttpStatusCode::HttpStatusCode() {
 	// # 1xx Informational
 	(*this)[100] = "Continue";

@@ -2,6 +2,7 @@
 
 #include "utility/result.hpp"
 
+using namespace std;
 using servio::Result;
 using servio::Unit;
 

@@ -8,15 +8,13 @@
 
 #define DEFAULT_MIME_TYPE "text/plain"
 
-using namespace std;
-
-class MimeType : public map<string, const char *, StringICaseCompare> {
-	typedef map<string, const char *, StringICaseCompare> Base;
+class MimeType : public std::map<std::string, const char *, StringICaseCompare> {
+	typedef std::map<std::string, const char *, StringICaseCompare> Base;
 
    public:
 	MimeType();
 
-	mapped_type &choiceMimeType(const string &path);
+	mapped_type &choiceMimeType(const std::string &path);
 
 	mapped_type &operator[](const key_type &key);
 };

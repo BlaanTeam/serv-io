@@ -1,5 +1,7 @@
 #include "logger.hpp"
 
+using namespace std;
+
 Logger::Logger(const string &prefixFolder) {
 	_access.open(joinPath(prefixFolder, "logs/access.log"), ios::in | ios::out | ios::app);
 	if (_access.fail()) {

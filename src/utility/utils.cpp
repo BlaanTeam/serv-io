@@ -1,5 +1,7 @@
 #include "utils.hpp"
 
+using namespace std;
+
 static void label(MainContext<> *main, int &id, ostream &stream) {
 	if (!main) return;
 

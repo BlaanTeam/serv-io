@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstring>
 
+using namespace std;
 using servio::Result;
 using servio::Unit;
 

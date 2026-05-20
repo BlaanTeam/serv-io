@@ -1,5 +1,7 @@
 #include "mime_types.hpp"
 
+using namespace std;
+
 MimeType::MimeType(void) {
 	insert(make_pair("html", "text/html"));
 	insert(make_pair("htm", "text/html"));

@@ -1,5 +1,7 @@
 #include "helpers.hpp"
 
+using namespace std;
+
 servio::Option<string> normpath(const string &path, const char sep) {
 	if (path.empty() || path[0] != sep)
 		return servio::None<string>();

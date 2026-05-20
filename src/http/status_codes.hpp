@@ -15,8 +15,6 @@
 
 #include "utility/helpers.hpp"
 
-using namespace std;
-
 #define CONTINUE 100
 #define SWITCHING_PROTOCOLS 101
 
@@ -62,7 +60,7 @@ using namespace std;
 #define GATEWAY_TIMEOUT 504
 #define HTTP_VERSION_NOT_SUPPORTED 505
 
-class HttpStatusCode : public map<short, string> {
+class HttpStatusCode : public std::map<short, std::string> {
    public:
 	HttpStatusCode();
 };
@@ -84,7 +82,7 @@ enum HttpMethod {
 	UNKNOWN = (1 << 8)
 };
 
-extern string httpMethods[8];
+extern std::string httpMethods[8];
 
 #define CR "\r"
 #define LF "\n"
@@ -95,8 +93,8 @@ extern string httpMethods[8];
 #define NAME "ServIo"
 #define VERSION "1.0.0"
 
-iostream *buildResponseBody(const short &statusCode);
+std::iostream *buildResponseBody(const short &statusCode);
 
-iostream *buildDirectoryListing(const string &path, const string &title);
+std::iostream *buildDirectoryListing(const std::string &path, const std::string &title);
 
 #endif

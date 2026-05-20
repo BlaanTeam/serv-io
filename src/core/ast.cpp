@@ -1,5 +1,7 @@
 #include "ast.hpp"
 
+using namespace std;
+
 ErrorPage::ErrorPage(string pattern, string page) : pattern(pattern), page(page) {}
 
 bool ErrorPage::match(const int &errorCode) const {

@@ -10,8 +10,6 @@
 #include "utility/result.hpp"
 #include "utility/utils.hpp"
 
-using namespace std;
-
 #define CONF_DFL_PATH "conf/servio.conf"
 
 typedef LocationContext<Type> Location;
@@ -19,29 +17,29 @@ typedef ServerContext<Type>   VirtualServer;
 
 class Config {
    public:
-	Config(const string &path = CONF_DFL_PATH);
+	Config(const std::string &path = CONF_DFL_PATH);
 	~Config();
 
 	// Open the given path and parse the configuration. Errors are surfaced
 	// via Result instead of cerr; callers decide how / whether to display
 	// them.
-	servio::Result<servio::Unit, string> load(const string &path);
+	servio::Result<servio::Unit, std::string> load(const std::string &path);
 
 	// Parses the previously-loaded file. Idempotent in the sense that it
 	// always returns the same Result; the parsed AST is owned by Config.
-	servio::Result<servio::Unit, string> parse();
+	servio::Result<servio::Unit, std::string> parse();
 
 	void displayContent(void) const;
 
 	// Getters
 	MainContext<Type> *ast();
-	string             path(void) const;
-	VirtualServer     *match(const Address &addr, const string &host);
+	std::string        path(void) const;
+	VirtualServer     *match(const Address &addr, const std::string &host);
 
    private:
-	string             _path;
-	mutable ifstream   _file_stream;
-	MainContext<Type> *_asTree;
+	std::string             _path;
+	mutable std::ifstream   _file_stream;
+	MainContext<Type>      *_asTree;
 };
 
 extern Config config;

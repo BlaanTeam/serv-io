@@ -2,6 +2,8 @@
 
 #include <cctype>
 
+using namespace std;
+
 size_t RangeSpecifier::contentLength(iostream *stream) {
 	return contentLength(getFileSize(stream));
 }

@@ -9,8 +9,6 @@
 #include "utility/helpers.hpp"
 #include "utility/result.hpp"
 
-using namespace std;
-
 // HTTP header bag with case-insensitive key lookup. Multi-value headers
 // (e.g. duplicate `Set-Cookie`) collapse into a `set<string>` per key.
 //
@@ -21,24 +19,24 @@ using namespace std;
 // methods this project actually uses.
 class Header {
    public:
-	typedef set<string>                                       ValueSet;
-	typedef map<string, ValueSet, StringICaseCompare>         Entries;
-	typedef Entries::iterator                                 iterator;
-	typedef Entries::const_iterator                           const_iterator;
+	typedef std::set<std::string>                                       ValueSet;
+	typedef std::map<std::string, ValueSet, StringICaseCompare>         Entries;
+	typedef Entries::iterator                                           iterator;
+	typedef Entries::const_iterator                                     const_iterator;
 
-	void add(const string &key, const string &value);
-	void erase(const string &key);
+	void add(const std::string &key, const std::string &value);
+	void erase(const std::string &key);
 	void clear();
 
-	bool found(const string &key) const;
+	bool found(const std::string &key) const;
 
 	// Single-value lookup. Returns the trimmed first value, or `None` when
 	// the header is absent (or its value set is empty). Replaces the old
 	// `""`-sentinel returning `get()`.
-	servio::Option<string> get(const string &key) const;
+	servio::Option<std::string> get(const std::string &key) const;
 
 	// Replace (or create) the multi-value set associated with `key`.
-	void setAll(const string &key, const ValueSet &values);
+	void setAll(const std::string &key, const ValueSet &values);
 
 	// Iteration — kept so callers can walk every header (CGI env, prepare()).
 	iterator       begin();

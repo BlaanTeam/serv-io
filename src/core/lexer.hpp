@@ -8,8 +8,6 @@
 #include <iostream>
 #include <string>
 
-using namespace std;
-
 extern const char *TokenNames[8];
 
 enum TokenType {
@@ -23,29 +21,29 @@ enum TokenType {
 	_UNKNOWN = 1 << 8,
 };
 
-string name(int type);
+std::string name(int type);
 
 class Token {
-	TokenType _type;
-	string    _value;
-	size_t    _line;
+	TokenType   _type;
+	std::string _value;
+	std::size_t _line;
 
    public:
 	Token();
-	Token(const TokenType &type, const string &value, const size_t &line);
+	Token(const TokenType &type, const std::string &value, const std::size_t &line);
 
 	// Getters
-	TokenType     type(void) const;
-	const string &value(void) const;
-	size_t        line(void) const;
-	string        name() const;
+	TokenType          type(void) const;
+	const std::string &value(void) const;
+	std::size_t        line(void) const;
+	std::string        name() const;
 };
 
-class Lexer : public deque<Token> {
+class Lexer : public std::deque<Token> {
    public:
 	Lexer();
 
-	bool tokenizer(ifstream &file);
+	bool tokenizer(std::ifstream &file);
 };
 
 #endif

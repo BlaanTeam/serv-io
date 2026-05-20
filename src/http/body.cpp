@@ -9,6 +9,8 @@
 #include "utility/helpers.hpp"
 #include "utility/utils.hpp"
 
+using namespace std;
+
 // ---------------------------------------------------------------- BodyFile --
 
 BodyFile::BodyFile() : _file(NULL) {}

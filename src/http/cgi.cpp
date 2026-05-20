@@ -1,5 +1,6 @@
 #include "cgi.hpp"
 
+using namespace std;
 using servio::Result;
 
 CGI::CGI() : _req(NULL), _res(NULL), _location(NULL) {}
