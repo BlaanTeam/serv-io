@@ -30,6 +30,27 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
 - The `try { ... } catch (...)` block in `main.cpp` is gone. Errors flow
   back through `servio_run`'s Result and the program exits with the right
   status via a small `match()` on the result.
+- **ResponseSender Strategy** — `Response`'s body-delivery dispatch is now
+  done through a `ResponseSender*` chosen at setup time:
+  `LengthedSender`, `ChunkedSender`, `RangedSender`, `CGISender`,
+  `UploadSender`. The 40-line `if-else-switch` in `Response::send` shrinks
+  to two virtual calls.
+- **Response::Builder** — fluent setup API
+  (`build().status(404).keepAlive(false).contentType("text/html").body(...).apply()`).
+  All `setupX` helpers now compose a Builder instead of mutating
+  half a dozen fields by hand; `setupErrorResponse`'s recursive fallback
+  logic is concentrated at the top and the actual response shape is one
+  fluent chain.
+- **Header composition over inheritance** — `Header` used to inherit
+  publicly from `std::map<…>` which leaked the entire container API.
+  Now it owns a private `Entries` map and exposes only the methods the
+  project actually uses (`add`, `get`, `tryGet`, `setAll`, `erase`,
+  iteration, …).
+- **Client::handleRequest** — removed all four `goto sendResponse`
+  jumps, extracted `resolveResponse(virtualServer)`, `tryCGI(location)`,
+  and `resolveStaticFile(location, path)`. The top-level handler reads
+  top-to-bottom and the routing decision tree is a flat sequence of
+  early returns.
 - **BodyParser Strategy pattern** — `LengthedBodyParser`,
   `ChunkedBodyParser`, `MultipartBodyParser` implementations of an abstract
   `BodyParser`. `Body` became a thin factory/coordinator.
