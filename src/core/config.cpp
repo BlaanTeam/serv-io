@@ -1,71 +1,68 @@
 #include "config.hpp"
 
+#include <cerrno>
+#include <cstring>
+
+using servio::Result;
+using servio::Unit;
+
 Config config;
 
-Config::Config(const string &path) {
-	setPath(path);
-}
-
-bool Config::parse() {
-	Parser parser(_file_stream);
-	if (!(_asTree = parser.parse())) {
-		cerr << parser.err() << endl;
-		return false;
-	}
-	return true;
-}
-
-bool Config::syntaxOnly() {
-	return parse();
-}
-
-void Config::displayContent(void) const {
-	char buff[1 << 10];
-	while (good() && !_file_stream.eof()) {
-		buff[_file_stream.read(buff, (1 << 10) - 1).gcount()] = 0x0;
-		cout << buff;
-	}
-}
-
-// Setters
-
-void Config::setPath(const string &path) {
-	_file_stream.close();
-	_file_stream.open(path, ios::in);
-	if (!good())
-		cerr << NAME << ": " << strerror(errno) << endl;
-	_path = path;
-}
-
-// Getters
-
-MainContext<Type> *Config::ast() {
-	return _asTree;
-}
-
-string Config::getPath(void) const {
-	return _path;
-}
-
-bool Config::good(void) const {
-	return _file_stream.good();
-}
-
-VirtualServer *Config::match(const Address &addr, const string &host) {
-	vector<VirtualServer *> servers;
-
-	for (size_t idx = 0; idx < _asTree->contexts().size(); idx++)
-		if (*(*(VirtualServer *)_asTree->contexts()[idx])["listen"].addr == addr)
-			servers.push_back((VirtualServer *)_asTree->contexts()[idx]);
-
-	for (size_t idx = 0; idx < servers.size(); idx++)
-		if ((*servers[idx])["server_name"].servName->find(host))
-			return servers[idx];
-
-	return servers[0];
+Config::Config(const string &path) : _asTree(NULL) {
+	(void)load(path);  // failures stay in the file_stream state; surface
+	                   // through parse()'s Result on next call
 }
 
 Config::~Config() {
 	_file_stream.close();
 	delete _asTree;
+}
+
+Result<Unit, string> Config::load(const string &path) {
+	_file_stream.close();
+	_file_stream.clear();
+	_file_stream.open(path.c_str(), ios::in);
+	_path = path;
+	if (!_file_stream.good())
+		return Result<Unit, string>::err("could not open `" + path + "`: " + strerror(errno));
+	return Result<Unit, string>::ok(Unit());
+}
+
+Result<Unit, string> Config::parse() {
+	if (!_file_stream.good())
+		return Result<Unit, string>::err("config file `" + _path + "` is not open");
+
+	Parser parser(_file_stream);
+	MainContext<Type> *tree = parser.parse();
+	if (!tree)
+		return Result<Unit, string>::err(parser.err());
+
+	delete _asTree;
+	_asTree = tree;
+	return Result<Unit, string>::ok(Unit());
+}
+
+void Config::displayContent(void) const {
+	char buff[1 << 10];
+	while (_file_stream.good() && !_file_stream.eof()) {
+		buff[_file_stream.read(buff, (1 << 10) - 1).gcount()] = 0x0;
+		cout << buff;
+	}
+}
+
+MainContext<Type> *Config::ast()              { return _asTree; }
+string             Config::getPath(void) const { return _path; }
+
+VirtualServer *Config::match(const Address &addr, const string &host) {
+	vector<VirtualServer *> servers;
+
+	for (size_t i = 0; i < _asTree->contexts().size(); ++i)
+		if (*(*(VirtualServer *)_asTree->contexts()[i])["listen"].addr == addr)
+			servers.push_back((VirtualServer *)_asTree->contexts()[i]);
+
+	for (size_t i = 0; i < servers.size(); ++i)
+		if ((*servers[i])["server_name"].servName->find(host))
+			return servers[i];
+
+	return servers.empty() ? NULL : servers[0];
 }

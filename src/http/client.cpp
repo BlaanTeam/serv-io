@@ -73,8 +73,9 @@ bool Client::handleRequest(const char *buf, size_t len) {
 			size_t pathLength = _req.getPath().length();
 
 			if (location->isCGI() && pathLength > locationLength) {
-				CGI cgi(location, &_req, &_res);
-				if (cgi.valid()) {
+				servio::Result<CGI, string> r = CGI::create(location, &_req, &_res);
+				if (r.isOk()) {
+					CGI cgi = r.unwrap();
 					_pid = cgi.spawn(_fds, _req.getFileno());
 					_res.setupCGIResponse(_fds[0], &_req);
 					goto sendResponse;

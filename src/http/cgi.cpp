@@ -1,32 +1,37 @@
 #include "cgi.hpp"
 
-CGI::CGI(LocationContext<Type> *location, Request *req, Response *res) : _isCGI(false) {
-	_location = location;
-	_req = req;
-	_res = res;
+using servio::Result;
+
+CGI::CGI() : _req(NULL), _res(NULL), _location(NULL) {}
+
+Result<CGI, string> CGI::create(LocationContext<Type> *location, Request *req, Response *res) {
+	typedef Result<CGI, string> R;
+
+	CGI c;
+	c._req = req;
+	c._res = res;
+	c._location = location;
+
 	stringstream ss(req->getPath().substr(location->location().length() + 1));
-	string       tmp;
-	string       scriptFileName;
+	string       script;
+	getline(ss, script, '/');
+	getline(ss, c._pathInfo, '\0');
 
-	getline(ss, tmp, '/');
-	getline(ss, _pathInfo, '\0');
+	c._scriptName     = joinPath(location->location(), script);
+	c._scriptFileName = c._scriptName;
 
-	_scriptName = joinPath(location->location(), tmp);
-	_scriptFileName = _scriptName;
+	CgiExtension *exts = location->getCGIExtensions();
+	if (!exts->match(script))
+		return R::err("`" + script + "` does not match any cgi_assign extension");
 
-	struct stat fileStat;
-	bzero(&fileStat, sizeof fileStat);
+	struct stat st;
+	bzero(&st, sizeof st);
+	if (!location->found(c._scriptFileName, st))
+		return R::err("`" + c._scriptFileName + "` not found");
+	if (access(c._scriptFileName.c_str(), X_OK) != 0)
+		return R::err("`" + c._scriptFileName + "` is not executable");
 
-	CgiExtension *cgiExt = location->getCGIExtensions();
-
-	if (cgiExt->match(tmp) && location->found(_scriptFileName, fileStat)) {
-		if (!access(_scriptFileName.c_str(), X_OK))
-			_isCGI = true;
-	}
-}
-
-bool CGI::valid() const {
-	return _isCGI;
+	return R::ok(c);
 }
 
 void CGI::init() {
@@ -39,27 +44,19 @@ void CGI::init() {
 	metaVariables.add("SCRIPT_NAME", _scriptName);
 	metaVariables.add("PATH_INFO", _pathInfo);
 
-	Request::headerIter it = _req->getHeaders().begin();
-
-	while (it != _req->getHeaders().end()) {
+	for (Request::headerIter it = _req->getHeaders().begin(); it != _req->getHeaders().end(); ++it)
 		metaVariables["HTTP_" + it->first] = it->second;
-		it++;
-	}
 }
 
 void CGI::setenv() {
-	Header::iterator it = metaVariables.begin();
-	while (it != metaVariables.end()) {
-		for (set<string>::iterator it_ = it->second.begin(); it_ != it->second.end(); it_++)
-			::setenv(it->first.c_str(), it_->c_str(), 1);
-
-		it++;
-	}
+	for (Header::iterator it = metaVariables.begin(); it != metaVariables.end(); ++it)
+		for (set<string>::iterator v = it->second.begin(); v != it->second.end(); ++v)
+			::setenv(it->first.c_str(), v->c_str(), 1);
 }
 
 pid_t CGI::spawn(int *fds, const int &fileno) {
 	pipe(fds);
-	int pid = fork();
+	const pid_t pid = fork();
 	if (!pid) {
 		lseek(fileno, 0, SEEK_SET);
 
