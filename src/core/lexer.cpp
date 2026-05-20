@@ -1,5 +1,8 @@
 #include "lexer.hpp"
 
+#include <cctype>
+#include <cstring>
+
 using namespace std;
 
 const char *TokenNames[8] = {
@@ -57,9 +60,13 @@ bool Lexer::tokenizer(ifstream &file) {
 		case '#':
 			while (chr != '\n' && !file.eof())
 				file.get(chr);
+			// fall through to the whitespace branch — the loop above stopped
+			// on '\n', and we want to count the line + skip the byte uniformly.
+			__attribute__((fallthrough));
 		case ' ':
 		case '\n':
-			chr == '\n' ? line++ : line += 0;
+			if (chr == '\n') line++;
+			__attribute__((fallthrough));
 		case '\r':
 		case '\f':
 		case '\v':

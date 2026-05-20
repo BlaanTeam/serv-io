@@ -1,5 +1,7 @@
 #include "cgi.hpp"
 
+#include <strings.h>   // bzero (used transitively via includes elsewhere too)
+
 using namespace std;
 using servio::Result;
 

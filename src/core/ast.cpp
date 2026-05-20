@@ -1,5 +1,8 @@
 #include "ast.hpp"
 
+#include <strings.h>   // bzero
+#include <cctype>      // tolower
+
 using namespace std;
 
 ErrorPage::ErrorPage(string pattern, string page) : pattern(pattern), page(page) {}

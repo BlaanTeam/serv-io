@@ -1,5 +1,7 @@
 #include "parser.hpp"
 
+#include <cstring>
+
 using namespace std;
 
 // Public member functions

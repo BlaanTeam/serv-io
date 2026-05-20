@@ -1,11 +1,12 @@
 #include "router.hpp"
 
+#include <strings.h>   // bzero
 #include <sys/stat.h>
-
-using namespace std;
 #include <unistd.h>
 
 #include "utility/helpers.hpp"
+
+using namespace std;
 
 Handler::~Handler() {}
 

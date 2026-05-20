@@ -1,5 +1,9 @@
 #include "helpers.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+
 using namespace std;
 
 servio::Option<string> normpath(const string &path, const char sep) {
