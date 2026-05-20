@@ -117,20 +117,11 @@ MimeType::MimeType(void) {
 	(*this)[""] = DEFAULT_MIME_TYPE;
 }
 
-#include <libgen.h>
-
 MimeType::mapped_type &MimeType::choiceMimeType(const string &path) {
-	
-	char bname[PATH_MAX] = {0};
-	basename_r(path.c_str(), bname);
-
-	size_t idx = path.find_last_of('.');
-
+	const size_t idx = path.find_last_of('.');
 	if (idx == string::npos)
 		return (*this)[""];
-	string ext = path.substr(idx + 1);
-	
-	return (*this)[ext];
+	return (*this)[path.substr(idx + 1)];
 }
 
 MimeType::mapped_type &MimeType::operator[](const key_type &key) {

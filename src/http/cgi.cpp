@@ -74,7 +74,8 @@ pid_t CGI::spawn(int *fds, const int &fileno) {
 
 		init();
 		setenv();
-		execvp(_scriptFileName.c_str(), (char *[]){NULL});
+		char *argv[] = { const_cast<char *>(_scriptFileName.c_str()), NULL };
+		execvp(_scriptFileName.c_str(), argv);
 		perror("execvp");
 		exit(1);
 	}
