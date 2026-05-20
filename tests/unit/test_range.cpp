@@ -49,14 +49,14 @@ TEST(Range, getContentLengthClosedInterval) {
 	Result<Range, std::string> r = Range::parse("bytes=10-19");
 	ASSERT_TRUE(r.isOk());
 	RangeSpecifier rs = r.unwrap().specifiers()[0];
-	ASSERT_EQ(rs.getContentLength((size_t)100), (size_t)10);
+	ASSERT_EQ(rs.contentLength((size_t)100), (size_t)10);
 }
 
 TEST(Range, getContentLengthOpenSuffix) {
 	Result<Range, std::string> r = Range::parse("bytes=90-");
 	ASSERT_TRUE(r.isOk());
 	RangeSpecifier rs = r.unwrap().specifiers()[0];
-	ASSERT_EQ(rs.getContentLength((size_t)100), (size_t)10);
+	ASSERT_EQ(rs.contentLength((size_t)100), (size_t)10);
 }
 
 TEST(Range, defaultIsEmpty) {

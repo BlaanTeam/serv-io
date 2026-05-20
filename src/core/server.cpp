@@ -9,7 +9,7 @@ using servio::Unit;
 
 static int isInSockets(const sockfd &fd, const vector<Socket> &vec) {
 	for (size_t i = 0; i < vec.size(); ++i)
-		if (vec[i].getSockFd() == fd)
+		if (vec[i].fd() == fd)
 			return (int)i;
 	return -1;
 }
@@ -35,7 +35,7 @@ static Result<Unit, string> initListeningSockets(const set<Address> &addrs,
 		if (listening.isErr())
 			return Result<Unit, string>::err(listening.unwrapErr());
 
-		pfds.add(s.getSockFd(), POLLIN);
+		pfds.add(s.fd(), POLLIN);
 		sockets.push_back(s);
 	}
 	return Result<Unit, string>::ok(Unit());

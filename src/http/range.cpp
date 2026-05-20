@@ -2,11 +2,11 @@
 
 #include <cctype>
 
-size_t RangeSpecifier::getContentLength(iostream *stream) {
-	return getContentLength(getFileSize(stream));
+size_t RangeSpecifier::contentLength(iostream *stream) {
+	return contentLength(getFileSize(stream));
 }
 
-size_t RangeSpecifier::getContentLength(size_t fileSize) {
+size_t RangeSpecifier::contentLength(size_t fileSize) {
 	long long length = (long long)rangeEnd - (long long)rangeStart + 1;
 
 	if (type == NOL)

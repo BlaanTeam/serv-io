@@ -33,17 +33,13 @@ class Address {
 	Address(const sockfd &fd);                       // from an accepted fd
 	Address(const sockaddr &addr, const socklen_t &len);
 
-	// Operator overloads + getters/setters
 	bool operator<(const Address &rhs)  const;
 	bool operator==(const Address &rhs) const;
 
-	void setHost(const string &host);
-	void setPort(const short &port);
-
-	string    getHost(void) const;
-	int       getPort(void) const;
-	sockaddr  getSockAddr(void) const;
-	socklen_t getSockLen(void) const;
+	string    host(void) const;
+	int       port(void) const;
+	sockaddr  sockAddr(void) const;
+	socklen_t sockLen(void) const;
 
 	~Address();
 
@@ -67,7 +63,7 @@ class Socket {
 	servio::Result<servio::Unit, string>          listen(int backlog = BACKLOG);
 	servio::Result<pair<sockfd, Address>, string> accept();
 
-	sockfd getSockFd(void) const;
+	sockfd fd(void) const;
 
 	Socket();                       // empty placeholder — Result needs default-constructibility
 	explicit Socket(sockfd fd);

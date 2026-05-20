@@ -5,6 +5,24 @@
 using servio::Result;
 using servio::Unit;
 
+namespace {
+
+// Functors for the `Config::load(...).match(onOk, onErr)` fold below.
+struct ConfigLoaded {
+	void operator()(const Unit &) const {}
+};
+
+struct ConfigLoadFailed {
+	const string *path;
+	bool         *failed;
+	void          operator()(const string &msg) const {
+		cerr << NAME ": \"" << *path << "\" failed: " << msg << endl;
+		*failed = true;
+	}
+};
+
+}  // namespace
+
 static void _display_version(void) {
 	cerr << "servio version: " << (NAME "/" VERSION) << endl;
 }
@@ -27,7 +45,7 @@ static void _display_help(void) {
 static bool _testConfiguration(Config &config) {
 	Result<Unit, string> r = config.parse();
 	const bool success = r.isOk();
-	cerr << NAME ": configuration file \"" << config.getPath()
+	cerr << NAME ": configuration file \"" << config.path()
 	     << "\" test is " << (success ? "successful" : "failed");
 	if (!success)
 		cerr << " (" << r.unwrapErr() << ")";
@@ -78,11 +96,11 @@ unknown:
 		if (flags & HELP_OPT)    _display_help();
 
 		if (flags & CONF_PATH_OPT) {
-			Result<Unit, string> loaded = config.load(path);
-			if (loaded.isErr()) {
-				cerr << NAME ": \"" << path << "\" failed: " << loaded.unwrapErr() << endl;
-				return false;
-			}
+			bool             loadFailed = false;
+			ConfigLoaded     onOk;
+			ConfigLoadFailed onErr = { &path, &loadFailed };
+			config.load(path).match(onOk, onErr);
+			if (loadFailed) return false;
 		}
 		if (flags & CONF_TEST_OPT) _testConfiguration(config);
 		if (flags & CONF_DUMP_OPT) _dumpConfiguration(config);

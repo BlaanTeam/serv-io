@@ -35,7 +35,7 @@ class Config {
 
 	// Getters
 	MainContext<Type> *ast();
-	string             getPath(void) const;
+	string             path(void) const;
 	VirtualServer     *match(const Address &addr, const string &host);
 
    private:

@@ -51,7 +51,7 @@ void Config::displayContent(void) const {
 }
 
 MainContext<Type> *Config::ast()              { return _asTree; }
-string             Config::getPath(void) const { return _path; }
+string             Config::path(void) const { return _path; }
 
 VirtualServer *Config::match(const Address &addr, const string &host) {
 	vector<VirtualServer *> servers;

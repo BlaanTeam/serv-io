@@ -63,20 +63,17 @@ Result<Address, string> Address::parse(const string &host, int port) {
 }
 
 ostream &operator<<(ostream &stream, const Address &addr) {
-	return stream << addr.getHost() << ":" << addr.getPort();
+	return stream << addr.host() << ":" << addr.port();
 }
 
-void Address::setHost(const string &host) { _host = host; }
-void Address::setPort(const short &port)  { _port = port; }
+string Address::host(void) const { return _host; }
+int    Address::port(void) const { return _port; }
 
-string Address::getHost(void) const { return _host; }
-int    Address::getPort(void) const { return _port; }
-
-sockaddr Address::getSockAddr(void) const {
+sockaddr Address::sockAddr(void) const {
 	sockaddr sa;
 	bzero(&sa, sizeof(sockaddr));
 	sa.sa_family = _ss_family;
-	sa.sa_len = getSockLen();
+	sa.sa_len = sockLen();
 
 	if (_ss_family == AF_INET)
 		((sockaddr_in *)&sa)->sin_port = htons(_port);
@@ -87,7 +84,7 @@ sockaddr Address::getSockAddr(void) const {
 	return sa;
 }
 
-socklen_t Address::getSockLen(void) const {
+socklen_t Address::sockLen(void) const {
 	return _ss_family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
 }
 
@@ -108,7 +105,7 @@ Socket::Socket(sockfd fd) : _fd(fd) {}
 
 Socket::~Socket() {}  // sockets are deliberately copyable for vector<Socket> use; no implicit close
 
-sockfd Socket::getSockFd(void) const { return _fd; }
+sockfd Socket::fd(void) const { return _fd; }
 
 Result<Socket, string> Socket::create(int domain, int type, int proto) {
 	typedef Result<Socket, string> R;
@@ -123,8 +120,8 @@ Result<Socket, string> Socket::create(int domain, int type, int proto) {
 }
 
 Result<Unit, string> Socket::bind(const Address &addr) {
-	const sockaddr  sa = addr.getSockAddr();
-	const socklen_t len = addr.getSockLen();
+	const sockaddr  sa = addr.sockAddr();
+	const socklen_t len = addr.sockLen();
 	if (::bind(_fd, &sa, len) != 0)
 		return Result<Unit, string>::err(string("bind(2): ") + strerror(errno));
 	return Result<Unit, string>::ok(Unit());
