@@ -8,6 +8,10 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased] — v2 branch
 
 ### Added
+- `LineReader` — a streamsearch-backed line scanner (needle = `\n`,
+  trailing `\r` stripped) used by both the request line/header parser
+  and `ChunkedBodyParser`. The whole request path now goes through one
+  needle-search primitive.
 - `StreamSearch` — a streamsearch-inspired needle scanner used to find
   multipart boundaries across `recv()` chunks without per-byte stream reads.
 - `sendfile(2)` path for static file responses (Darwin + Linux, with a
@@ -100,6 +104,34 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
   `SERVIO_XXX_HPP`.
 - Bit-flag `#define`s for request/response state and response type are now
   proper typed `enum`s.
+- **Request parser now line-driven via `LineReader`.** The hand-coded
+  byte-by-byte state machine in `Request::consume` is gone; bytes flow
+  through `_lineReader.feed → takeLine`, lines dispatch through
+  `parseRequestLine` / `parseHeaderLine`, and the buffer remainder hands
+  off cleanly to the body parser on the empty header line.
+- **ChunkedBodyParser**: 6 phases collapsed to 4
+  (`ReadSizeLine`, `ReadData`, `ReadDataCRLF`, `ReadTrailerLine`). Size
+  and trailer lines flow through `LineReader`; the data span stays
+  byte-counted. Trailer header lines are properly skipped now (was
+  best-effort before).
+- **`Header::get` returns `Option<string>`.** The `""`-sentinel API is
+  gone; all 9 callers migrated to `isSome`/`unwrap` or `unwrapOr`.
+- **`MainContext::errorPage` returns `Option<ErrorPage*>`.** The
+  `nullptr`-sentinel API is gone; the one caller in `resolveErrorBody`
+  is `isNone`/`unwrap`-driven.
+- **Drop `get*` prefix on accessors** across the codebase: `getPath` →
+  `path`, `getQuery` → `query`, `getMethod` → `method`, `getHost` →
+  `host`, `getPort` → `port`, `getSockFd` → `fd`, `getIndex` → `index`,
+  `getUploadStore` → `uploadStore`, `getRedir` → `redirect`,
+  `getCGIExtensions` → `cgiExtensions`, `getContentLength` →
+  `contentLength`, and friends.
+- **Delete dead setters**: `Address::setHost` / `setPort` (0 callsites).
+- Rename ambiguous Response fields: `_lengthState` → `_rangePhase`,
+  `_fd` → `_cgiFd`, `_ss` → `_headerBuffer`.
+- Apply `Option::match` at the two sites it reads cleaner than
+  `if (isSome) { ... }`: `Request::parseRequestLine`'s `normpath` fold,
+  and `options.cpp`'s `Config::load` error sink. Other Result/Option
+  sites stay on the simpler `unwrapOr` / `if isErr return` idioms.
 
 ## [1.0.0] — initial release
 
