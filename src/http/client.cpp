@@ -65,78 +65,15 @@ bool Client::handleRequest(const char *buf, size_t len) {
 	return isPurgeable();
 }
 
-// Decides which Response to install. Every branch installs exactly one
-// response and then returns — no goto, no fallthrough.
+// Resolves the response by handing the request to the routing pipeline.
+// Every branch is encapsulated in a Handler (see router.cpp); this method
+// is just the glue.
 void Client::resolveResponse(VirtualServer *virtualServer) {
-	if (!_req.valid())
-		return _res.setupErrorResponse(_req.statusCode(), virtualServer);
-
-	Location *location = virtualServer->match(_req.path());
-	_ctx = location;
-
-	if (virtualServer->isRedirectable())
-		return _res.setupRedirectResponse(virtualServer->redirect(), virtualServer);
-	if (!location)
-		return _res.setupErrorResponse(NOT_FOUND, virtualServer);
-	if (_req.isTooLarge(location->directives()["client_max_body_size"].value))
-		return _res.setupErrorResponse(REQUEST_ENTITY_TOO_LARGE, virtualServer);
-	if (location->isRedirectable())
-		return _res.setupRedirectResponse(location->redirect(), location);
-	if (!location->isAllowedMethod(_req.method()))
-		return _res.setupErrorResponse(METHOD_NOT_ALLOWED, location);
-
-	const size_t locationLength = location->location().length();
-	const size_t pathLength     = _req.path().length();
-
-	if (location->isCGI() && pathLength > locationLength && tryCGI(location))
-		return;
-	if (location->isUpload() && _req.method() == POST)
-		return _res.setupUploadResponse(location, &_req);
-
-	resolveStaticFile(location, _req.path());
-}
-
-// Spawn the CGI child and install a CGISender. Returns false if the
-// request doesn't match this location's CGI configuration.
-bool Client::tryCGI(Location *location) {
-	servio::Result<CGI, string> r = CGI::create(location, &_req, &_res);
-	if (r.isErr())
-		return false;
-	CGI cgi = r.unwrap();
-	_pid = cgi.spawn(_fds, _req.fileno());
-	_res.setupCGIResponse(_fds[0], &_req);
-	return true;
-}
-
-// Serve a regular file, a directory listing, or an index page — whichever
-// matches the request path and the location's autoindex/index settings.
-void Client::resolveStaticFile(Location *location, string path) {
-	_res.extractRange(_req);
-
-	struct stat fileStat;
-	bzero(&fileStat, sizeof fileStat);
-	if (!location->found(path, fileStat))
-		return _res.setupErrorResponse(NOT_FOUND, location);
-
-	if (S_ISDIR(fileStat.st_mode)) {
-		// Redirect directory requests that lack a trailing slash.
-		const size_t pathLength = _req.path().length();
-		if (pathLength > 1 && _req.path()[pathLength - 1] != '/') {
-			Redirect redir(MOVED_PERMANENTLY, joinPath(_req.path(), "/"), true);
-			return _res.setupRedirectResponse(&redir, location);
-		}
-
-		const string indexPath = joinPath(path, location->index());
-		if (!access(indexPath.c_str(), F_OK | R_OK) && _res.setupNormalResponse(indexPath))
-			return;
-		if (location->isAutoIndexable())
-			return _res.setupDirectoryListing(path, _req.path());
-		return _res.setupErrorResponse(FORBIDDEN, location);
-	}
-
-	if (!access(path.c_str(), F_OK | R_OK) && _res.setupNormalResponse(path))
-		return;
-	_res.setupErrorResponse(FORBIDDEN, location);
+	DefaultRouter  router;
+	RoutingContext ctx(_req, _res, virtualServer, _fds, &_pid);
+	router.route(ctx);
+	if (ctx.location)
+		_ctx = ctx.location;
 }
 
 void Client::handleResponse(const sockfd &fd) {

@@ -10,6 +10,7 @@
 #include "./cgi.hpp"
 #include "./request.hpp"
 #include "./response.hpp"
+#include "./router.hpp"
 #include "core/config.hpp"
 
 using namespace std;
@@ -53,12 +54,10 @@ class Client {
 	void togglePollOut(void);
 
    private:
-	// `handleRequest` is split into a tiny top-level state machine and a
-	// router that decides which Response to install. Both have a single
-	// exit path; no goto.
+	// `handleRequest` is split into a tiny top-level state machine and the
+	// pluggable handler chain (see router.hpp) that decides which Response
+	// to install. Both have a single exit path; no goto.
 	void resolveResponse(VirtualServer *virtualServer);
-	bool tryCGI(Location *location);
-	void resolveStaticFile(Location *location, string path);
 };
 
 class ClientMap : public map<sockfd, Client> {
