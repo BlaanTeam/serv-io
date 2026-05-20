@@ -7,6 +7,9 @@
 #   make fclean     -> remove all build artifacts including the binary
 #   make re         -> fclean + all
 #   make format     -> run clang-format -i over src/
+#   make test       -> build and run unit + e2e tests
+#   make test-unit  -> build and run the unit test binary
+#   make test-e2e   -> spin up the server and run tests/e2e/run.sh
 #   make install    -> install $(NAME) into $(DESTDIR)$(PREFIX)/bin
 #   make uninstall  -> remove the installed binary
 
@@ -65,7 +68,7 @@ BINDIR    := $(DESTDIR)$(PREFIX)/bin
 
 # ---- Targets ----------------------------------------------------------------
 
-.PHONY: all asan debug release clean fclean re format install uninstall help
+.PHONY: all asan debug release clean fclean re format install uninstall help test test-unit test-e2e
 
 all: $(NAME)
 
@@ -107,6 +110,44 @@ uninstall:
 	@printf '\033[1;33m  uninstall\033[0m  %s\n' '$(BINDIR)/$(NAME)'
 
 help:
-	@sed -n '1,18p' Makefile
+	@sed -n '1,22p' Makefile
 
--include $(DEPS)
+# ---- Tests -----------------------------------------------------------------
+
+TEST_SRC_DIR  := tests/unit
+TEST_BUILD    := $(BUILD_DIR)/test
+TEST_BIN      := $(TEST_BUILD)/servio-tests
+
+# All production sources except the entry point (tests/unit/main.cpp supplies
+# its own main).
+PROD_SRCS     := $(filter-out src/main.cpp,$(SRCS))
+PROD_TEST_OBJS:= $(patsubst src/%.cpp,$(TEST_BUILD)/prod/%.o,$(PROD_SRCS))
+
+TEST_SRCS     := $(wildcard $(TEST_SRC_DIR)/*.cpp)
+TEST_OBJS     := $(patsubst $(TEST_SRC_DIR)/%.cpp,$(TEST_BUILD)/unit/%.o,$(TEST_SRCS))
+
+TEST_DEPS     := $(PROD_TEST_OBJS:.o=.d) $(TEST_OBJS:.o=.d)
+
+.PHONY: test test-unit test-e2e
+
+$(TEST_BUILD)/unit/%.o: $(TEST_SRC_DIR)/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(TEST_BUILD)/prod/%.o: src/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(TEST_BIN): $(TEST_OBJS) $(PROD_TEST_OBJS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
+	@printf '\033[1;32m  built\033[0m  %s  (tests)\n' '$@'
+
+test-unit: $(TEST_BIN)
+	@$(TEST_BIN)
+
+test-e2e: $(NAME)
+	@./tests/e2e/run.sh
+
+test: test-unit test-e2e
+
+-include $(DEPS) $(TEST_DEPS)

@@ -36,3 +36,4 @@ logs/*.log
 
 # Project convention: ignore prefixed scratch files
 ign_*
+tests/e2e/servio.test.conf
