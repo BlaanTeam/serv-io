@@ -6,6 +6,8 @@
 
 #include "utility/utils.hpp"
 
+using namespace std;
+
 BodyParser::~BodyParser() {}
 
 // -------------------------------------------------------- LengthedBodyParser --
@@ -35,6 +37,9 @@ bool LengthedBodyParser::isError() const {
 ChunkedBodyParser::ChunkedBodyParser(FILE *dst)
 	: _dst(dst), _phase(ReadSizeLine), _chunkRemaining(0), _done(false), _error(false) {}
 
+// `phase` accessor for the switch below — the Phase<E> wrapper hides the
+// `_phase = X` style mutation behind `transition(X)`.
+
 bool ChunkedBodyParser::isDone() const { return _done; }
 bool ChunkedBodyParser::isError() const { return _error; }
 
@@ -54,7 +59,7 @@ static bool parseHexSize(const string &line, size_t &out) {
 size_t ChunkedBodyParser::consume(const char *buf, size_t len) {
 	size_t i = 0;
 	while (i < len && !_done && !_error) {
-		switch (_phase) {
+		switch (_phase.current()) {
 		case ReadSizeLine: {
 			i += _lineReader.feed(buf + i, len - i);
 			servio::Option<string> line = _lineReader.takeLine();
@@ -66,7 +71,7 @@ size_t ChunkedBodyParser::consume(const char *buf, size_t len) {
 				return i;
 			}
 			_chunkRemaining = size;
-			_phase = (size == 0) ? ReadTrailerLine : ReadData;
+			_phase.transition((size == 0) ? ReadTrailerLine : ReadData);
 			break;
 		}
 
@@ -79,7 +84,7 @@ size_t ChunkedBodyParser::consume(const char *buf, size_t len) {
 			_chunkRemaining -= take;
 			if (_chunkRemaining == 0) {
 				_lineReader.reset();   // about to use it for the CRLF terminator
-				_phase = ReadDataCRLF;
+				_phase.transition(ReadDataCRLF);
 			}
 			break;
 		}
@@ -94,7 +99,7 @@ size_t ChunkedBodyParser::consume(const char *buf, size_t len) {
 				return i;
 			}
 			_lineReader.reset();
-			_phase = ReadSizeLine;
+			_phase.transition(ReadSizeLine);
 			break;
 		}
 
@@ -140,13 +145,13 @@ bool MultipartBodyParser::isError() const { return _error; }
 size_t MultipartBodyParser::consume(const char *buf, size_t len) {
 	size_t i = 0;
 	while (i < len && !_done && !_error) {
-		if (_phase == Preamble || _phase == ReadPartBody) {
+		if (_phase.is(Preamble) || _phase.is(ReadPartBody)) {
 			size_t taken = _search.feed(buf + i, len - i);
 			i += taken;
 			if (_search.matched()) {
-				if (_phase == ReadPartBody) closePartFile();
+				if (_phase.is(ReadPartBody)) closePartFile();
 				_search.clearMatch();
-				_phase = AfterBoundary;
+				_phase.transition(AfterBoundary);
 				_afterTail.clear();
 			} else {
 				break;  // chunk exhausted without finding boundary
@@ -154,13 +159,13 @@ size_t MultipartBodyParser::consume(const char *buf, size_t len) {
 			continue;
 		}
 
-		if (_phase == AfterBoundary) {
+		if (_phase.is(AfterBoundary)) {
 			while (i < len && _afterTail.size() < 2)
 				_afterTail += buf[i++];
 			if (_afterTail.size() < 2)
 				break;
 			if (_afterTail == "--") {
-				_phase = Epilogue;
+				_phase.transition(Epilogue);
 				_done = true;
 				return i;
 			}
@@ -169,11 +174,11 @@ size_t MultipartBodyParser::consume(const char *buf, size_t len) {
 				return i;
 			}
 			_headerLine.clear();
-			_phase = ReadHeaders;
+			_phase.transition(ReadHeaders);
 			continue;
 		}
 
-		if (_phase == ReadHeaders) {
+		if (_phase.is(ReadHeaders)) {
 			while (i < len) {
 				char c = buf[i++];
 				_headerLine += c;
@@ -182,7 +187,7 @@ size_t MultipartBodyParser::consume(const char *buf, size_t len) {
 					if (hl == 2) {
 						_headerLine.clear();
 						openPartFile();
-						_phase = ReadPartBody;
+						_phase.transition(ReadPartBody);
 						break;
 					}
 					parseHeaderLine(_headerLine);
@@ -196,8 +201,8 @@ size_t MultipartBodyParser::consume(const char *buf, size_t len) {
 }
 
 void MultipartBodyParser::onData(const char *data, size_t len) {
-	if (_phase == Preamble) return;  // discard preamble bytes
-	if (_phase != ReadPartBody || !_partOpen) return;
+	if (_phase.is(Preamble)) return;  // discard preamble bytes
+	if (!_phase.is(ReadPartBody) || !_partOpen) return;
 	map<int, BodyFile>::iterator it = _files.find(_fileIndex);
 	if (it != _files.end())
 		it->second.write(data, len);

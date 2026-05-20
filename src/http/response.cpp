@@ -12,6 +12,8 @@
 #include <sys/sendfile.h>
 #endif
 
+using namespace std;
+
 // Portable sendfile shim. The kernel ABI differs between platforms; the
 // wrapper presents a uniform "send up to `count` bytes from offset, advance
 // offset, return bytes-sent or -1 on hard error" contract.

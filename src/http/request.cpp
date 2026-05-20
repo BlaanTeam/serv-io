@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstring>
 
+using namespace std;
+
 namespace {
 
 // Helper functors used with Option::match() in parseRequestLine. C++98

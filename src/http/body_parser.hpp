@@ -10,8 +10,7 @@
 #include "./boundary.hpp"
 #include "./line_reader.hpp"
 #include "./streamsearch.hpp"
-
-using namespace std;
+#include "utility/state_machine.hpp"
 
 // Strategy interface for streaming HTTP body parsers.
 //
@@ -25,24 +24,24 @@ class BodyParser {
    public:
 	virtual ~BodyParser();
 
-	virtual size_t consume(const char *buf, size_t len) = 0;
-	virtual bool   isDone()  const = 0;
-	virtual bool   isError() const = 0;
+	virtual std::size_t consume(const char *buf, std::size_t len) = 0;
+	virtual bool        isDone()  const = 0;
+	virtual bool        isError() const = 0;
 };
 
 // Reads exactly Content-Length bytes into the staging file.
 class LengthedBodyParser : public BodyParser {
    public:
-	LengthedBodyParser(FILE *dst, size_t contentLength);
+	LengthedBodyParser(FILE *dst, std::size_t contentLength);
 
-	virtual size_t consume(const char *buf, size_t len);
-	virtual bool   isDone()  const;
-	virtual bool   isError() const;
+	virtual std::size_t consume(const char *buf, std::size_t len);
+	virtual bool        isDone()  const;
+	virtual bool        isError() const;
 
    private:
-	FILE  *_dst;
-	size_t _contentLength;
-	size_t _written;
+	FILE        *_dst;
+	std::size_t  _contentLength;
+	std::size_t  _written;
 };
 
 // Decodes the "<hex-size>\r\n<bytes>\r\n…0\r\n\r\n" Transfer-Encoding=chunked
@@ -50,26 +49,26 @@ class LengthedBodyParser : public BodyParser {
 // the data span itself is byte-counted.
 class ChunkedBodyParser : public BodyParser {
    public:
-	explicit ChunkedBodyParser(FILE *dst);
-
-	virtual size_t consume(const char *buf, size_t len);
-	virtual bool   isDone()  const;
-	virtual bool   isError() const;
-
-   private:
-	enum Phase {
+	enum ChunkPhase {
 		ReadSizeLine,    // pull "<hex>" via LineReader
 		ReadData,        // count exactly _chunkRemaining bytes into _dst
 		ReadDataCRLF,    // skip the trailing CRLF after a data chunk
 		ReadTrailerLine  // accept (and discard) trailer header lines until empty
 	};
 
-	FILE       *_dst;
-	Phase       _phase;
-	LineReader  _lineReader;
-	size_t      _chunkRemaining;
-	bool        _done;
-	bool        _error;
+	explicit ChunkedBodyParser(FILE *dst);
+
+	virtual std::size_t consume(const char *buf, std::size_t len);
+	virtual bool        isDone()  const;
+	virtual bool        isError() const;
+
+   private:
+	FILE                      *_dst;
+	servio::Phase<ChunkPhase>  _phase;
+	LineReader                 _lineReader;
+	std::size_t                _chunkRemaining;
+	bool                       _done;
+	bool                       _error;
 };
 
 // Parses multipart/form-data using a streamsearch-style needle scanner on
@@ -77,17 +76,7 @@ class ChunkedBodyParser : public BodyParser {
 // in the caller-supplied map.
 class MultipartBodyParser : public BodyParser, public StreamSearch::Sink {
    public:
-	MultipartBodyParser(const Boundary &boundary, map<int, BodyFile> &files);
-
-	virtual size_t consume(const char *buf, size_t len);
-	virtual bool   isDone()  const;
-	virtual bool   isError() const;
-
-	// StreamSearch::Sink — receives non-needle bytes during scanning.
-	virtual void onData(const char *data, size_t len);
-
-   private:
-	enum Phase {
+	enum MultipartPhase {
 		Preamble,        // scanning for the very first boundary; data discarded
 		AfterBoundary,   // boundary just hit; inspect the next 2 bytes
 		ReadHeaders,     // accumulating part headers until the empty line
@@ -95,19 +84,29 @@ class MultipartBodyParser : public BodyParser, public StreamSearch::Sink {
 		Epilogue         // final boundary received; ignore remaining bytes
 	};
 
+	MultipartBodyParser(const Boundary &boundary, std::map<int, BodyFile> &files);
+
+	virtual std::size_t consume(const char *buf, std::size_t len);
+	virtual bool        isDone()  const;
+	virtual bool        isError() const;
+
+	// StreamSearch::Sink — receives non-needle bytes during scanning.
+	virtual void onData(const char *data, std::size_t len);
+
+   private:
 	void openPartFile();
 	void closePartFile();
-	void parseHeaderLine(const string &line);
+	void parseHeaderLine(const std::string &line);
 
-	StreamSearch         _search;          // needle = "\r\n--<boundary>"
-	map<int, BodyFile>  &_files;
-	Phase                _phase;
-	string               _afterTail;       // 0-2 bytes pending in AfterBoundary
-	string               _headerLine;      // current header line being assembled
-	int                  _fileIndex;
-	bool                 _partOpen;
-	bool                 _done;
-	bool                 _error;
+	StreamSearch                  _search;        // needle = "\r\n--<boundary>"
+	std::map<int, BodyFile>      &_files;
+	servio::Phase<MultipartPhase> _phase;
+	std::string                   _afterTail;     // 0-2 bytes pending in AfterBoundary
+	std::string                   _headerLine;    // current header line being assembled
+	int                           _fileIndex;
+	bool                          _partOpen;
+	bool                          _done;
+	bool                          _error;
 };
 
 #endif
