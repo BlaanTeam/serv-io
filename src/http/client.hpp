@@ -51,6 +51,14 @@ class Client {
 	void reset(void);
 
 	void togglePollOut(void);
+
+   private:
+	// `handleRequest` is split into a tiny top-level state machine and a
+	// router that decides which Response to install. Both have a single
+	// exit path; no goto.
+	void resolveResponse(VirtualServer *virtualServer);
+	bool tryCGI(Location *location);
+	void resolveStaticFile(Location *location, string path);
 };
 
 class ClientMap : public map<sockfd, Client> {
