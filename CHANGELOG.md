@@ -7,6 +7,29 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — v2 branch
 
+### Changed
+- **Build switched from `-std=c++98` to `-std=c++14`.** This unlocks
+  `std::unique_ptr`, lambdas, `auto`, range-for, and `= delete`. The
+  project had been using `nullptr` as an Apple Clang extension under
+  C++98 already; landing on a real standard with these tools is the
+  bigger win.
+- **`std::unique_ptr` for owned resources.** Manual `new`/`delete` is
+  gone from `Body::_parser`, `Response::_sender`, `Response::_stream`,
+  `Config::_asTree`, and `DefaultRouter::_chain`. The corresponding
+  destructors shrank to noop or `close(fd)` only.
+- **Lambdas in place of functor structs** at the four `match()` /
+  `matchTo()` callsites (main.cpp, options.cpp, request.cpp,
+  test_result.cpp). The anonymous-namespace structs from the C++98
+  workaround are deleted.
+- **`Flags<T>` adopted in `Request::_state` and `Response::_state`.**
+  Raw bitmask checks like `_state & REQ_BODY` are now
+  `_state.any(REQ_BODY)`; assignments like `_state = X` are
+  `_state.replace(X)`. Both classes' state machines now read uniformly.
+- **`auto` and range-for** at iterator-loop sites in `header.cpp`,
+  `cgi.cpp`, `response.cpp`, `server.cpp`.
+- `StringICaseCompare` no longer inherits from the C++17-removed
+  `std::binary_function`; it carries the typedefs it needs as members.
+
 ### Added
 - **State-machine helpers** in `utility/state_machine.hpp`:
   `servio::Phase<E>` for single-valued enum state with a
