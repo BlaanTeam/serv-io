@@ -87,7 +87,7 @@ iostream *buildDirectoryListing(const string &path, const string &title) {
 	struct dirent *entry;
 
 	while ((entry = readdir(dir))) {
-		if (entry->d_namlen < 1 || entry->d_name[0] == '.')
+		if (entry->d_name[0] == '\0' || entry->d_name[0] == '.')
 			continue;
 
 		struct stat info;
@@ -96,8 +96,10 @@ iostream *buildDirectoryListing(const string &path, const string &title) {
 		string d_name(entry->d_name);
 		d_name += S_ISDIR(info.st_mode) ? "/" : "";
 
+		// `st_mtimespec` is Apple-only; Linux exposes the modification time
+		// directly as `st_mtime`. The plain field works on both.
 		char dateBuffer[0xFF] = {0};
-		strftime(dateBuffer, 0xFF, "%d-%b-%Y %H:%M", localtime(&info.st_mtimespec.tv_sec));
+		strftime(dateBuffer, 0xFF, "%d-%b-%Y %H:%M", localtime(&info.st_mtime));
 
 		(*stream) << "<td><a href=\"" << d_name << "\">" << d_name << "</a></td> <td>" << dateBuffer << "</td> <td>" << (S_ISDIR(info.st_mode) ? "-" : to_string(info.st_size)) << "</td> </tr>";
 	}

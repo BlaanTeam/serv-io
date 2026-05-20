@@ -351,7 +351,7 @@ void Response::sendLengthedBody(const sockfd &fd) {
 
 	_stream->read(buff, (1 << 10));
 	::send(fd, buff, _stream->gcount(), 0);
-	setState(_stream->eof() ? RES_DONE : _state.raw());
+	setState(_stream->eof() ? (int)RES_DONE : (int)_state.raw());
 }
 
 void Response::setupChunkedBody() {
@@ -372,7 +372,7 @@ void Response::sendChunkedBody(const sockfd &fd) {
 		_headerBuffer.str("");
 		_headerBuffer.clear();
 	}
-	setState(_stream->eof() ? RES_DONE : _state.raw());
+	setState(_stream->eof() ? (int)RES_DONE : (int)_state.raw());
 }
 
 void Response::setupRangedBody() {
@@ -562,7 +562,7 @@ void Response::sendUploadBody(const sockfd &fd) {
 
 	_stream->read(buff, (1 << 10));
 	::send(fd, buff, _stream->gcount(), 0);
-	setState(_stream->eof() ? RES_DONE : _state.raw());
+	setState(_stream->eof() ? (int)RES_DONE : (int)_state.raw());
 }
 // =================================================================== Builder
 //
