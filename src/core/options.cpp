@@ -6,24 +6,6 @@ using namespace std;
 using servio::Result;
 using servio::Unit;
 
-namespace {
-
-// Functors for the `Config::load(...).match(onOk, onErr)` fold below.
-struct ConfigLoaded {
-	void operator()(const Unit &) const {}
-};
-
-struct ConfigLoadFailed {
-	const string *path;
-	bool         *failed;
-	void          operator()(const string &msg) const {
-		cerr << NAME ": \"" << *path << "\" failed: " << msg << endl;
-		*failed = true;
-	}
-};
-
-}  // namespace
-
 static void _display_version(void) {
 	cerr << "servio version: " << (NAME "/" VERSION) << endl;
 }
@@ -97,10 +79,13 @@ unknown:
 		if (flags & HELP_OPT)    _display_help();
 
 		if (flags & CONF_PATH_OPT) {
-			bool             loadFailed = false;
-			ConfigLoaded     onOk;
-			ConfigLoadFailed onErr = { &path, &loadFailed };
-			config.load(path).match(onOk, onErr);
+			bool loadFailed = false;
+			config.load(path).match(
+			    [](const Unit &) {},
+			    [&](const string &msg) {
+				    cerr << NAME ": \"" << path << "\" failed: " << msg << endl;
+				    loadFailed = true;
+			    });
 			if (loadFailed) return false;
 		}
 		if (flags & CONF_TEST_OPT) _testConfiguration(config);

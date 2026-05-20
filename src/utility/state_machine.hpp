@@ -58,6 +58,7 @@ class Phase {
 template <typename T>
 class Flags {
    public:
+	Flags() : _bits(T()) {}
 	explicit Flags(T initial) : _bits(initial) {}
 
 	void enter(T mask)   { _bits |= mask; }

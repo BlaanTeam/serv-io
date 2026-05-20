@@ -6,22 +6,6 @@
 
 using namespace std;
 
-namespace {
-
-// Helper functors used with Option::match() in parseRequestLine. C++98
-// can't express closures, so the bind state lives in small structs.
-struct AssignNormalizedPath {
-	string *target;
-	void operator()(const string &normalized) const { *target = normalized; }
-};
-
-struct FlagFailure {
-	bool *failed;
-	void operator()() const { *failed = true; }
-};
-
-}  // namespace
-
 Request::Request()
 	: _state(REQ_INIT),
 	  _statusCode(BAD_REQUEST),
@@ -47,12 +31,12 @@ Request::~Request() {}
 // --------------------------------------------------------- state mutators --
 
 void Request::changeState(short state) {
-	_state = state;
+	_state.replace(state);
 }
 
 void Request::fail(short statusCode) {
 	_statusCode = statusCode;
-	_state = REQ_INVALID;
+	_state.replace(REQ_INVALID);
 }
 
 // --------------------------------------------------------- main feed loop --
@@ -64,12 +48,12 @@ void Request::fail(short statusCode) {
 //     owns whatever recv chunk remains).
 //   - REQ_DONE / REQ_INVALID: stop.
 size_t Request::consume(const char *buf, size_t len) {
-	if (_state & (REQ_DONE | REQ_INVALID))
+	if (_state.any(REQ_DONE | REQ_INVALID))
 		return 0;
 
 	size_t i = 0;
 	while (i < len) {
-		if (_state & REQ_BODY) {
+		if (_state.any(REQ_BODY)) {
 			const size_t used = _body.consume(buf + i, len - i);
 			i += used;
 			if (_body.isError()) {
@@ -89,7 +73,7 @@ size_t Request::consume(const char *buf, size_t len) {
 		i += taken;
 
 		if (_lineReader.pendingSize() >= REQ_MAX_HEADER_LINE) {
-			fail((_state & REQ_LINE) ? REQUEST_URI_TOO_LONG : BAD_REQUEST);
+			fail(_state.any(REQ_LINE) ? REQUEST_URI_TOO_LONG : BAD_REQUEST);
 			return i;
 		}
 
@@ -101,25 +85,25 @@ size_t Request::consume(const char *buf, size_t len) {
 
 		const string line = next.unwrap();
 
-		if (_state & REQ_INIT) {
+		if (_state.any(REQ_INIT)) {
 			if (line.empty()) continue;   // tolerate leading blank lines
 			changeState(REQ_LINE);
 		}
 
-		if (_state & REQ_LINE) {
+		if (_state.any(REQ_LINE)) {
 			parseRequestLine(line);
-			if (_state & REQ_INVALID) return i;
+			if (_state.any(REQ_INVALID)) return i;
 			continue;
 		}
 
-		if (_state & REQ_HEADER) {
+		if (_state.any(REQ_HEADER)) {
 			if (line.empty()) {
 				onHeadersComplete();
-				if (_state & REQ_INVALID) return i;
+				if (_state.any(REQ_INVALID)) return i;
 				continue;  // outer loop now dispatches to REQ_BODY branch
 			}
 			parseHeaderLine(line);
-			if (_state & REQ_INVALID) return i;
+			if (_state.any(REQ_INVALID)) return i;
 		}
 	}
 	return i;
@@ -148,10 +132,10 @@ void Request::parseRequestLine(const string &line) {
 	if (q != string::npos) _query = uri.substr(q + 1);
 
 	// Rust-style fold: assign on Some, mark failure on None.
-	bool                pathInvalid = false;
-	AssignNormalizedPath onOk = { &_path };
-	FlagFailure          onErr = { &pathInvalid };
-	normpath(path).match(onOk, onErr);
+	bool pathInvalid = false;
+	normpath(path).match(
+	    [&](const string &normalized) { _path = normalized; },
+	    [&] { pathInvalid = true; });
 	if (pathInvalid) return fail(BAD_REQUEST);
 
 	int idx = 0;
@@ -187,7 +171,7 @@ void Request::onHeadersComplete() {
 
 string Request::path(void) const { return _path; }
 string Request::query(void) const { return _query; }
-short  Request::state(void) const { return _state; }
+short  Request::state(void) const { return _state.raw(); }
 int    Request::statusCode() const { return _statusCode; }
 int    Request::fileno() const { return _body.fileno(); }
 HttpMethod Request::method(void) const { return _method; }
@@ -195,7 +179,7 @@ HttpMethod Request::method(void) const { return _method; }
 Header             &Request::headers(void) { return _headers; }
 map<int, BodyFile> &Request::bodyFiles() { return _body.bodyFiles(); }
 
-bool Request::valid() const { return !(_state & REQ_INVALID); }
+bool Request::valid() const { return !_state.any(REQ_INVALID); }
 
 bool Request::isTooLarge(const int &clientMaxSize) {
 	const servio::Option<string> value = _headers.get("Content-Length");
@@ -205,7 +189,7 @@ bool Request::isTooLarge(const int &clientMaxSize) {
 	return atoll(v.c_str()) > clientMaxSize;
 }
 
-bool Request::match(const int &state) const { return _state & state; }
+bool Request::match(const int &state) const { return _state.any(state); }
 
 Range Request::range() {
 	const servio::Option<string> value = _headers.get("Range");
@@ -214,7 +198,7 @@ Range Request::range() {
 }
 
 void Request::reset(void) {
-	_state = REQ_INIT;
+	_state.replace(REQ_INIT);
 	_method = UNKNOWN;
 	_statusCode = BAD_REQUEST;
 	_path.clear();

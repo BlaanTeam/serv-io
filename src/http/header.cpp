@@ -19,7 +19,7 @@ bool Header::found(const string &key) const {
 }
 
 servio::Option<string> Header::get(const string &key) const {
-	const_iterator it = _entries.find(key);
+	const auto it = _entries.find(key);
 	if (it == _entries.end() || it->second.empty())
 		return servio::None<string>();
 	string value = *it->second.begin();
@@ -39,7 +39,7 @@ Header::const_iterator Header::end()   const { return _entries.end(); }
 bool Header::empty() const { return _entries.empty(); }
 
 void Header::display() const {
-	for (const_iterator it = _entries.begin(); it != _entries.end(); ++it)
-		for (ValueSet::const_iterator v = it->second.begin(); v != it->second.end(); ++v)
-			cerr << it->first << "=" << *v << endl;
+	for (const auto &entry : _entries)
+		for (const auto &value : entry.second)
+			cerr << entry.first << "=" << value << endl;
 }

@@ -10,6 +10,7 @@
 #include "./range.hpp"
 #include "./status_codes.hpp"
 #include "utility/helpers.hpp"
+#include "utility/state_machine.hpp"
 #include "utility/utils.hpp"
 
 // Request parser state. Flags are bitwise-combined and tested with &.
@@ -66,14 +67,14 @@ class Request {
 	void changeState(short state);
 	void fail(short statusCode);
 
-	short       _state;
-	short       _statusCode;
-	HttpMethod  _method;
-	std::string _path;
-	std::string _query;
-	LineReader  _lineReader;  // drives REQ_LINE + REQ_HEADER phases
-	Header      _headers;
-	Body        _body;
+	servio::Flags<short> _state;
+	short                _statusCode;
+	HttpMethod           _method;
+	std::string          _path;
+	std::string          _query;
+	LineReader           _lineReader;  // drives REQ_LINE + REQ_HEADER phases
+	Header               _headers;
+	Body                 _body;
 };
 
 #endif

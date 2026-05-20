@@ -45,14 +45,14 @@ void CGI::init() {
 	metaVariables.add("SCRIPT_NAME", _scriptName);
 	metaVariables.add("PATH_INFO", _pathInfo);
 
-	for (Request::headerIter it = _req->headers().begin(); it != _req->headers().end(); ++it)
-		metaVariables.setAll("HTTP_" + it->first, it->second);
+	for (const auto &entry : _req->headers())
+		metaVariables.setAll("HTTP_" + entry.first, entry.second);
 }
 
 void CGI::setenv() {
-	for (Header::iterator it = metaVariables.begin(); it != metaVariables.end(); ++it)
-		for (set<string>::iterator v = it->second.begin(); v != it->second.end(); ++v)
-			::setenv(it->first.c_str(), v->c_str(), 1);
+	for (const auto &entry : metaVariables)
+		for (const auto &value : entry.second)
+			::setenv(entry.first.c_str(), value.c_str(), 1);
 }
 
 pid_t CGI::spawn(int *fds, const int &fileno) {

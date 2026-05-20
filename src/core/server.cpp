@@ -21,18 +21,18 @@ static int isInSockets(const sockfd &fd, const vector<Socket> &vec) {
 static Result<Unit, string> initListeningSockets(const set<Address> &addrs,
                                                  vector<Socket>     &sockets,
                                                  PollFd             &pfds) {
-	for (set<Address>::const_iterator it = addrs.begin(); it != addrs.end(); ++it) {
-		Result<Socket, string> made = Socket::create();
+	for (const auto &addr : addrs) {
+		auto made = Socket::create();
 		if (made.isErr())
 			return Result<Unit, string>::err(made.unwrapErr());
 
 		Socket s = made.unwrap();
 
-		Result<Unit, string> bound = s.bind(*it);
+		auto bound = s.bind(addr);
 		if (bound.isErr())
 			return Result<Unit, string>::err(bound.unwrapErr());
 
-		Result<Unit, string> listening = s.listen();
+		auto listening = s.listen();
 		if (listening.isErr())
 			return Result<Unit, string>::err(listening.unwrapErr());
 
