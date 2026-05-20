@@ -8,6 +8,13 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased] — v2 branch
 
 ### Added
+- **Handler chain for request routing** (Pingora-flavored). New
+  `Handler` interface + `RoutingContext` + `DefaultRouter` in
+  `http/router.{hpp,cpp}`. Concrete handlers — `EarlyGate`,
+  `LocationGate`, `CGIDispatch`, `UploadDispatch`, `StaticServe` — each
+  own one routing decision and return `Handled`/`Pass`. `Client`'s
+  former `resolveResponse + tryCGI + resolveStaticFile` triplet is now
+  one four-line glue method that walks the chain.
 - `LineReader` — a streamsearch-backed line scanner (needle = `\n`,
   trailing `\r` stripped) used by both the request line/header parser
   and `ChunkedBodyParser`. The whole request path now goes through one
@@ -104,6 +111,13 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
   `SERVIO_XXX_HPP`.
 - Bit-flag `#define`s for request/response state and response type are now
   proper typed `enum`s.
+- `TIMEOUT` and `BACKLOG` macros are now `static const int` in their
+  natural scopes. Dead `#define CHUNK_SIZE` removed.
+- `streamsearch.hpp` and `line_reader.hpp` no longer `using namespace
+  std;` — types are qualified with `std::` so including these
+  frequently-pulled headers doesn't pollute downstream translation
+  units. The corresponding `.cpp` files keep `using namespace std;`
+  for terseness.
 - **Request parser now line-driven via `LineReader`.** The hand-coded
   byte-by-byte state machine in `Request::consume` is gone; bytes flow
   through `_lineReader.feed → takeLine`, lines dispatch through
