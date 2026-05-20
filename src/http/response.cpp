@@ -43,8 +43,7 @@ static ssize_t sendfileTo(int sock, int filefd, off_t *offset, size_t count) {
 Response::Response() {
 	_keepAlive = true;
 	_rangePhase = INIT_LENGTH;
-	_stream = nullptr;
-	_sender = nullptr;
+	// unique_ptr members start null automatically
 	_fileFd = -1;
 	_filePos = 0;
 	_fileLen = 0;
@@ -56,8 +55,7 @@ Response::Response() {
 Response::Response(const short &statusCode, bool keepAlive) {
 	_statusCode = statusCode;
 	_keepAlive = keepAlive;
-	_stream = nullptr;
-	_sender = nullptr;
+	// unique_ptr members start null automatically
 	_fileFd = -1;
 	_filePos = 0;
 	_fileLen = 0;
@@ -67,8 +65,7 @@ Response::Response(const short &statusCode, bool keepAlive) {
 }
 
 Response::Response(const Response &copy) {
-	_stream = nullptr;
-	_sender = nullptr;
+	// unique_ptr members start null automatically
 	_fileFd = -1;
 	_filePos = 0;
 	_fileLen = 0;
@@ -78,21 +75,18 @@ Response::Response(const Response &copy) {
 Response &Response::operator=(const Response &rhs) {
 	if (this != &rhs) {
 		_keepAlive = rhs._keepAlive;
-		_stream = rhs._stream;
 		_state = rhs._state;
 		_type = rhs._type;
 		_headers = rhs._headers;
 		_isCustomStatusCode = rhs._isCustomStatusCode;
-		// `_sender` is intentionally not copied — sender ownership stays
-		// with the source; the destination needs a fresh strategy chosen by
-		// its own setup pass.
+		// `_sender` and `_stream` are intentionally not copied — ownership
+		// stays with the source; the destination needs a fresh strategy and
+		// body stream chosen by its own setup pass.
 	}
 	return *this;
 }
 
 Response::~Response() {
-	delete _stream;
-	delete _sender;
 	if (_fileFd >= 0) close(_fileFd);
 }
 
@@ -112,13 +106,9 @@ void Response::prepare(void) {
 		_statusStringCode = httpStatusCodes[_statusCode];
 	_headerBuffer << HTTP_VERSION << " " << to_string(_statusCode) << " " << _statusStringCode << CRLF;
 
-	Header::iterator it = _headers.begin();
-
-	while (it != _headers.end()) {
-		for (set<string>::iterator it_ = it->second.begin(); it_ != it->second.end(); it_++)
-			_headerBuffer << it->first << ": " << *it_ << CRLF;
-
-		it++;
+	for (const auto &entry : _headers) {
+		for (const auto &value : entry.second)
+			_headerBuffer << entry.first << ": " << value << CRLF;
 	}
 }
 
@@ -129,11 +119,11 @@ void Response::setStatusCode(const short &statusCode) {
 }
 
 void Response::setState(const int &state) {
-	_state = state;
+	_state.replace((short)state);
 }
 
 void Response::setStream(iostream *stream) {
-	_stream = stream;
+	_stream.reset(stream);
 }
 
 void Response::setConnectionStatus(bool keepAlive) {
@@ -145,7 +135,7 @@ bool Response::keepAlive(void) const {
 }
 
 void Response::addHeader(const string &name, const string &value) {
-	if (_state & (RES_DONE | RES_BODY))
+	if (_state.any(RES_DONE | RES_BODY))
 		return;
 	// _headers[name] = value;
 	_headers.add(name, value);
@@ -155,7 +145,7 @@ void Response::send(const sockfd &fd) {
 	if (!_sender)
 		return;
 
-	if (_state & (RES_INIT | RES_HEADER)) {
+	if (_state.any(RES_INIT | RES_HEADER)) {
 		if (!_sender->prepareHeaders(*this))
 			return;  // sender wants to defer — try again on the next poll
 		prepare();
@@ -164,7 +154,7 @@ void Response::send(const sockfd &fd) {
 		setState(RES_BODY);
 	}
 
-	if (_state & RES_BODY)
+	if (_state.any(RES_BODY))
 		_sender->sendBody(*this, fd);
 }
 
@@ -287,7 +277,7 @@ void Response::parseHeaders(stringstream &ss) {
 }
 
 void Response::changeState(const int &state) {
-	_state = state;
+	_state.replace((short)state);
 }
 
 void Response::setupCGIResponse(const int &fd, Request *req) {
@@ -297,7 +287,7 @@ void Response::setupCGIResponse(const int &fd, Request *req) {
 }
 
 bool Response::match(const int &state) const {
-	return _state & state;
+	return _state.any(state);
 }
 
 void Response::reset(void) {
@@ -306,10 +296,8 @@ void Response::reset(void) {
 	_headerBuffer.clear();
 	_rangePhase = INIT_LENGTH;
 
-	delete _stream;
-	_stream = nullptr;
-	delete _sender;
-	_sender = nullptr;
+	_stream.reset();
+	_sender.reset();
 	if (_fileFd >= 0) {
 		close(_fileFd);
 		_fileFd = -1;
@@ -362,7 +350,7 @@ void Response::sendLengthedBody(const sockfd &fd) {
 
 	_stream->read(buff, (1 << 10));
 	::send(fd, buff, _stream->gcount(), 0);
-	setState(_stream->eof() ? RES_DONE : _state);
+	setState(_stream->eof() ? RES_DONE : _state.raw());
 }
 
 void Response::setupChunkedBody() {
@@ -383,17 +371,17 @@ void Response::sendChunkedBody(const sockfd &fd) {
 		_headerBuffer.str("");
 		_headerBuffer.clear();
 	}
-	setState(_stream->eof() ? RES_DONE : _state);
+	setState(_stream->eof() ? RES_DONE : _state.raw());
 }
 
 void Response::setupRangedBody() {
 	RangeSpecifier range = _range.specifiers()[0];
-	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream);
+	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream.get());
 
 	if (_fileFd >= 0)
 		addHeader("Content-Length", to_string((long long)range.contentLength(fileSize)));
 	else
-		addHeader("Content-Length", to_string(range.contentLength(_stream)));
+		addHeader("Content-Length", to_string(range.contentLength(_stream.get())));
 	setStatusCode(PARTIAL_CONTENT);
 
 	if (range.type == NOL)
@@ -410,7 +398,7 @@ void Response::setupRangedBody() {
 
 void Response::sendRangedBody(const sockfd &fd) {
 	RangeSpecifier range = _range.specifiers()[0];
-	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream);
+	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream.get());
 
 	// Normalize the range against the file size so the offsets we hand to
 	// sendfile() / seekg() are always within [0, fileSize).
@@ -458,7 +446,7 @@ void Response::sendRangedBody(const sockfd &fd) {
 		sendLessThanKiloByte(fd);
 
 	if (_rangePhase & DONE_LENGTH)
-		_state = RES_DONE;
+		_state.replace(RES_DONE);
 }
 
 void Response::sendKiloByte(const sockfd &fd) {
@@ -489,7 +477,7 @@ bool Response::setupCGIBody() {
 			stringstream ss(line);
 			parseHeaders(ss);
 			line = "";
-			if (_state & RES_BODY)
+			if (_state.any(RES_BODY))
 				break;
 		}
 		got = true;
@@ -523,13 +511,12 @@ void Response::sendCGIBody(const sockfd &fd) {
 
 void Response::extractRange(Request &req) {
 	_range = req.range();
-	delete _sender;
 	if (_range.empty()) {
-		_sender = new LengthedSender();
-		_type   = LENGTHED_RES;
+		_sender.reset(new LengthedSender());
+		_type = LENGTHED_RES;
 	} else {
-		_sender = new RangedSender();
-		_type   = RANGED_RES;
+		_sender.reset(new RangedSender());
+		_type = RANGED_RES;
 	}
 }
 
@@ -561,9 +548,9 @@ bool Response::setupUploadBody() {
 	for (map<string, bool>::iterator it = uploaded.begin(); it != uploaded.end(); ++it)
 		*html << "<br/><span>" << it->first << " -- "
 		      << (it->second ? "Uploaded" : "Not Uploaded") << "</span>\n";
-	_stream = html;
+	_stream.reset(html);
 
-	addHeader("Content-Length", to_string(getFileSize(_stream)));
+	addHeader("Content-Length", to_string(getFileSize(_stream.get())));
 	return true;
 }
 
@@ -574,7 +561,7 @@ void Response::sendUploadBody(const sockfd &fd) {
 
 	_stream->read(buff, (1 << 10));
 	::send(fd, buff, _stream->gcount(), 0);
-	setState(_stream->eof() ? RES_DONE : _state);
+	setState(_stream->eof() ? RES_DONE : _state.raw());
 }
 // =================================================================== Builder
 //
@@ -609,18 +596,17 @@ Response::Builder &Response::Builder::header(const string &name, const string &v
 }
 
 Response::Builder &Response::Builder::body(iostream *stream) {
-	_r._stream = stream;
+	_r._stream.reset(stream);
 	return *this;
 }
 
-// Each `asXxx` swaps in the matching sender strategy. The old sender (if
-// any) is freed first; this is safe because the Builder only runs during
-// setup, before send() consults the sender.
+// Each `asXxx` swaps in the matching sender strategy. unique_ptr's reset
+// drops the previous sender (if any) — safe because the Builder only runs
+// during setup, before send() consults the sender.
 #define INSTALL_SENDER(SenderType, TypeTag)               \
 	do {                                                  \
-		delete _r._sender;                                \
-		_r._sender = new SenderType();                    \
-		_r._type   = TypeTag;                             \
+		_r._sender.reset(new SenderType());               \
+		_r._type = TypeTag;                               \
 	} while (0)
 
 Response::Builder &Response::Builder::asLengthed() { INSTALL_SENDER(LengthedSender, LENGTHED_RES); return *this; }

@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include <map>
+#include <memory>
 #include <string>
 
 #include "./header.hpp"
@@ -61,14 +62,13 @@ class Body {
 
    private:
 	void openTmpFile();
-	void destroyParser();
 
-	BodyParser              *_parser;
-	FILE                    *_bodyFile;
-	std::string              _bodyFilePath;
-	std::map<int, BodyFile>  _bodyFiles;
-	bool                     _strategyChosen;
-	bool                     _noBody;   // headers picked no parser at all
+	std::unique_ptr<BodyParser> _parser;
+	FILE                       *_bodyFile;
+	std::string                 _bodyFilePath;
+	std::map<int, BodyFile>     _bodyFiles;
+	bool                        _strategyChosen;
+	bool                        _noBody;   // headers picked no parser at all
 };
 
 #endif

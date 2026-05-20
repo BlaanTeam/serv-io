@@ -57,13 +57,13 @@ string BodyFile::clientFilename() {
 // -------------------------------------------------------------------- Body --
 
 Body::Body()
-	: _parser(NULL), _bodyFile(NULL), _strategyChosen(false), _noBody(false) {}
+	: _bodyFile(NULL), _strategyChosen(false), _noBody(false) {}
 
 // Self-referential state (the MultipartBodyParser holds a reference to
 // _bodyFiles) would dangle on default copy, so copies install a fresh,
 // default-state Body — the next request cycle will repopulate it.
 Body::Body(const Body &copy)
-	: _parser(NULL), _bodyFile(NULL), _strategyChosen(false), _noBody(false) {
+	: _bodyFile(NULL), _strategyChosen(false), _noBody(false) {
 	(void)copy;
 }
 
@@ -73,13 +73,8 @@ Body &Body::operator=(const Body &rhs) {
 }
 
 Body::~Body() {
-	destroyParser();
 	closeFile();
-}
-
-void Body::destroyParser() {
-	delete _parser;
-	_parser = NULL;
+	// _parser cleaned up automatically by unique_ptr.
 }
 
 void Body::openTmpFile() {
@@ -126,7 +121,7 @@ void Body::chooseStrategy(Header &headers) {
 
 	const servio::Option<string> te = headers.get("Transfer-Encoding");
 	if (te.isSome() && isChunkedEncoding(te.unwrap())) {
-		_parser = new ChunkedBodyParser(_bodyFile);
+		_parser.reset(new ChunkedBodyParser(_bodyFile));
 		return;
 	}
 
@@ -134,7 +129,7 @@ void Body::chooseStrategy(Header &headers) {
 	if (ct.isSome()) {
 		const servio::Result<Boundary, string> boundary = Boundary::parse(ct.unwrap());
 		if (boundary.isOk()) {
-			_parser = new MultipartBodyParser(boundary.unwrap(), _bodyFiles);
+			_parser.reset(new MultipartBodyParser(boundary.unwrap(), _bodyFiles));
 			return;
 		}
 	}
@@ -144,7 +139,7 @@ void Body::chooseStrategy(Header &headers) {
 	        ? parseContentLength(headers.get("Content-Length").unwrap())
 	        : servio::None<size_t>();
 	if (cl.isSome()) {
-		_parser = new LengthedBodyParser(_bodyFile, cl.unwrap());
+		_parser.reset(new LengthedBodyParser(_bodyFile, cl.unwrap()));
 		return;
 	}
 
@@ -178,7 +173,7 @@ map<int, BodyFile> &Body::bodyFiles() {
 }
 
 void Body::reset() {
-	destroyParser();
+	_parser.reset();
 	closeFile();
 	_bodyFilePath.clear();
 	_bodyFiles.clear();   // BodyFile dtors close each part file

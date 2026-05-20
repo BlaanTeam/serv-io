@@ -148,21 +148,16 @@ class StaticServe : public Handler {
 // ----------------------------------------------------------------- chain --
 
 DefaultRouter::DefaultRouter() {
-	_chain.push_back(new EarlyGate());
-	_chain.push_back(new LocationGate());
-	_chain.push_back(new CGIDispatch());
-	_chain.push_back(new UploadDispatch());
-	_chain.push_back(new StaticServe());
-}
-
-DefaultRouter::~DefaultRouter() {
-	for (size_t i = 0; i < _chain.size(); ++i)
-		delete _chain[i];
+	_chain.emplace_back(new EarlyGate());
+	_chain.emplace_back(new LocationGate());
+	_chain.emplace_back(new CGIDispatch());
+	_chain.emplace_back(new UploadDispatch());
+	_chain.emplace_back(new StaticServe());
 }
 
 void DefaultRouter::route(RoutingContext &ctx) {
-	for (size_t i = 0; i < _chain.size(); ++i) {
-		if (_chain[i]->handle(ctx) == Handler::Handled)
+	for (auto &handler : _chain) {
+		if (handler->handle(ctx) == Handler::Handled)
 			return;
 	}
 }

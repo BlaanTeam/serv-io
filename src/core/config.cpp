@@ -9,14 +9,14 @@ using servio::Unit;
 
 Config config;
 
-Config::Config(const string &path) : _asTree(NULL) {
+Config::Config(const string &path) {
 	(void)load(path);  // failures stay in the file_stream state; surface
 	                   // through parse()'s Result on next call
 }
 
 Config::~Config() {
 	_file_stream.close();
-	delete _asTree;
+	// _asTree cleaned up automatically by unique_ptr.
 }
 
 Result<Unit, string> Config::load(const string &path) {
@@ -38,8 +38,7 @@ Result<Unit, string> Config::parse() {
 	if (!tree)
 		return Result<Unit, string>::err(parser.err());
 
-	delete _asTree;
-	_asTree = tree;
+	_asTree.reset(tree);
 	return Result<Unit, string>::ok(Unit());
 }
 
@@ -51,7 +50,7 @@ void Config::displayContent(void) const {
 	}
 }
 
-MainContext<Type> *Config::ast()              { return _asTree; }
+MainContext<Type> *Config::ast()              { return _asTree.get(); }
 string             Config::path(void) const { return _path; }
 
 VirtualServer *Config::match(const Address &addr, const string &host) {

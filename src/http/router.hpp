@@ -3,6 +3,7 @@
 
 #include <sys/types.h>
 
+#include <memory>
 #include <vector>
 
 #include "./cgi.hpp"
@@ -64,15 +65,15 @@ class Handler {
 class DefaultRouter {
    public:
 	DefaultRouter();
-	~DefaultRouter();
+	~DefaultRouter() = default;
 
 	void route(RoutingContext &ctx);
 
-   private:
-	DefaultRouter(const DefaultRouter &);
-	DefaultRouter &operator=(const DefaultRouter &);
+	DefaultRouter(const DefaultRouter &)            = delete;
+	DefaultRouter &operator=(const DefaultRouter &) = delete;
 
-	std::vector<Handler *> _chain;
+   private:
+	std::vector<std::unique_ptr<Handler> > _chain;
 };
 
 #endif

@@ -2,6 +2,7 @@
 #define SERVIO_CONFIG_HPP
 
 #include <fstream>
+#include <memory>
 #include <string>
 
 #include "./ast.hpp"
@@ -37,9 +38,9 @@ class Config {
 	VirtualServer     *match(const Address &addr, const std::string &host);
 
    private:
-	std::string             _path;
-	mutable std::ifstream   _file_stream;
-	MainContext<Type>      *_asTree;
+	std::string                          _path;
+	mutable std::ifstream                _file_stream;
+	std::unique_ptr<MainContext<Type> >  _asTree;
 };
 
 extern Config config;

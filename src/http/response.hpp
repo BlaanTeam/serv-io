@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -18,6 +19,7 @@
 #include "core/ast.hpp"
 #include "utility/helpers.hpp"
 #include "utility/socket.hpp"
+#include "utility/state_machine.hpp"
 #include "utility/utils.hpp"
 
 // Response writer state. Flags are bitwise-combined and tested with &.
@@ -66,19 +68,19 @@ class Response {
 
 	std::stringstream _headerBuffer;
 
-	bool        _isCustomStatusCode;
-	short       _statusCode;
-	std::string _statusStringCode;
-	short       _type;
-	short       _state;
-	int         _length;
-	short       _rangePhase;
+	bool                 _isCustomStatusCode;
+	short                _statusCode;
+	std::string          _statusStringCode;
+	short                _type;
+	servio::Flags<short> _state;
+	int                  _length;
+	short                _rangePhase;
 
 	// Strategy: body-delivery is delegated to a sender chosen at setup time.
-	ResponseSender *_sender;
+	std::unique_ptr<ResponseSender> _sender;
 
-	std::iostream *_stream;
-	int            _cgiFd;
+	std::unique_ptr<std::iostream>  _stream;
+	int                             _cgiFd;
 
 	// sendfile() path: when serving a regular file we skip the iostream layer
 	// and ask the kernel to copy file -> socket directly. `_fileFd` is -1 when
