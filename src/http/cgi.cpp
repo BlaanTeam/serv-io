@@ -60,7 +60,10 @@ void CGI::setenv() {
 }
 
 pid_t CGI::spawn(int *fds, const int &fileno) {
-	pipe(fds);
+	if (pipe(fds) == -1) {
+		perror("pipe");
+		return -1;
+	}
 	const pid_t pid = fork();
 	if (!pid) {
 		lseek(fileno, 0, SEEK_SET);
