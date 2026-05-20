@@ -74,7 +74,11 @@ sockaddr Address::sockAddr(void) const {
 	sockaddr sa;
 	bzero(&sa, sizeof(sockaddr));
 	sa.sa_family = _ss_family;
+#ifdef __APPLE__
+	// BSD-style sockaddr carries its own length; Linux's POSIX sockaddr
+	// doesn't have this field.
 	sa.sa_len = sockLen();
+#endif
 
 	if (_ss_family == AF_INET)
 		((sockaddr_in *)&sa)->sin_port = htons(_port);

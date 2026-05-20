@@ -1,5 +1,7 @@
 #include "logger.hpp"
 
+#include <cstring>   // strerror
+
 using namespace std;
 
 Logger::Logger(const string &prefixFolder) {
