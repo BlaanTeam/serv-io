@@ -13,9 +13,23 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
 - `sendfile(2)` path for static file responses (Darwin + Linux, with a
   `pread + send` fallback for other platforms). Range responses pass the
   kernel an offset directly.
-- Rust-style `Option<T>` / `Result<T, E>` in `utility/result.hpp`. Applied
-  to `normpath` (now `Option<string>`) and `Boundary::parse` (now
-  `Result<Boundary, string>`).
+- Rust-style `Option<T>` / `Result<T, E>` in `utility/result.hpp` with
+  `match` / `matchTo` fold helpers and a `Unit` sentinel for void-success.
+  Applied across every fallible boundary in the project:
+    - `normpath(path)`           -> `Option<string>`
+    - `Boundary::parse`          -> `Result<Boundary, string>`
+    - `Range::parse`             -> `Result<Range, string>`
+    - `Header::tryGet`           -> `Option<string>`
+    - `Address::parse`           -> `Result<Address, string>`
+    - `Socket::create`           -> `Result<Socket, string>`
+    - `Socket::bind / listen`    -> `Result<Unit, string>`
+    - `Socket::accept`           -> `Result<pair<sockfd, Address>, string>`
+    - `CGI::create`              -> `Result<CGI, string>`
+    - `Config::load / parse`     -> `Result<Unit, string>`
+    - `servio_run`               -> `Result<Unit, string>` (top-level fold)
+- The `try { ... } catch (...)` block in `main.cpp` is gone. Errors flow
+  back through `servio_run`'s Result and the program exits with the right
+  status via a small `match()` on the result.
 - **BodyParser Strategy pattern** — `LengthedBodyParser`,
   `ChunkedBodyParser`, `MultipartBodyParser` implementations of an abstract
   `BodyParser`. `Body` became a thin factory/coordinator.
