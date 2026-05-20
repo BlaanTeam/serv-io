@@ -8,6 +8,14 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased] — v2 branch
 
 ### Added
+- **State-machine helpers** in `utility/state_machine.hpp`:
+  `servio::Phase<E>` for single-valued enum state with a
+  self-documenting `transition()` / `is()` API, and `servio::Flags<T>`
+  for bit-mask state with `enter` / `leave` / `replace` / `is` / `any` /
+  `raw`. `ChunkedBodyParser` and `MultipartBodyParser` migrated to
+  `Phase<>`; the former `_phase = X` raw assignments are now
+  `_phase.transition(X)` and the comparisons are `_phase.is(X)`.
+  9 unit tests in `test_state_machine.cpp` cover both helpers.
 - **Handler chain for request routing** (Pingora-flavored). New
   `Handler` interface + `RoutingContext` + `DefaultRouter` in
   `http/router.{hpp,cpp}`. Concrete handlers — `EarlyGate`,
@@ -113,11 +121,12 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
   proper typed `enum`s.
 - `TIMEOUT` and `BACKLOG` macros are now `static const int` in their
   natural scopes. Dead `#define CHUNK_SIZE` removed.
-- `streamsearch.hpp` and `line_reader.hpp` no longer `using namespace
-  std;` — types are qualified with `std::` so including these
-  frequently-pulled headers doesn't pollute downstream translation
-  units. The corresponding `.cpp` files keep `using namespace std;`
-  for terseness.
+- **No project header carries `using namespace std;` anymore.** Every
+  `.hpp` qualifies std types explicitly with `std::`. The `.cpp` files
+  each take a per-file `using namespace std;` to keep implementations
+  terse. Closes the cardinal C++-anti-pattern that was leaking the
+  entire `std` namespace into every translation unit that included
+  any project header.
 - **Request parser now line-driven via `LineReader`.** The hand-coded
   byte-by-byte state machine in `Request::consume` is gone; bytes flow
   through `_lineReader.feed → takeLine`, lines dispatch through
