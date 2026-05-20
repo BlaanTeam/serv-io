@@ -4,14 +4,14 @@
 TEST(Header, addAndGetIsCaseInsensitive) {
 	Header h;
 	h.add("Content-Type", "text/plain");
-	ASSERT_STREQ(h.get("Content-Type"), "text/plain");
-	ASSERT_STREQ(h.get("content-type"), "text/plain");
-	ASSERT_STREQ(h.get("CONTENT-TYPE"), "text/plain");
+	ASSERT_STREQ(h.get("Content-Type").unwrap(), "text/plain");
+	ASSERT_STREQ(h.get("content-type").unwrap(), "text/plain");
+	ASSERT_STREQ(h.get("CONTENT-TYPE").unwrap(), "text/plain");
 }
 
-TEST(Header, missingKeyReturnsEmpty) {
+TEST(Header, missingKeyReturnsNone) {
 	Header h;
-	ASSERT_STREQ(h.get("X-Not-There"), "");
+	ASSERT_TRUE(h.get("X-Not-There").isNone());
 }
 
 TEST(Header, foundReturnsTrueForPresentKey) {
@@ -25,18 +25,13 @@ TEST(Header, foundReturnsTrueForPresentKey) {
 TEST(Header, getTrimsSurroundingSpaces) {
 	Header h;
 	h.add("X-Custom", "   padded value   ");
-	ASSERT_STREQ(h.get("X-Custom"), "padded value");
+	ASSERT_STREQ(h.get("X-Custom").unwrap(), "padded value");
 }
 
-TEST(Header, tryGetReturnsSomeForPresentKey) {
+TEST(Header, getReturnsSomeForPresentKey) {
 	Header h;
 	h.add("Content-Length", "42");
-	servio::Option<string> v = h.tryGet("content-length");
+	servio::Option<string> v = h.get("content-length");
 	ASSERT_TRUE(v.isSome());
 	ASSERT_STREQ(v.unwrap(), "42");
-}
-
-TEST(Header, tryGetReturnsNoneForMissingKey) {
-	Header h;
-	ASSERT_TRUE(h.tryGet("Authorization").isNone());
 }

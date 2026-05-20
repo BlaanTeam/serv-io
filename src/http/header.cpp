@@ -16,16 +16,7 @@ bool Header::found(const string &key) const {
 	return _entries.find(key) != _entries.end();
 }
 
-string Header::get(const string &key) {
-	const_iterator it = _entries.find(key);
-	if (it == _entries.end() || it->second.empty())
-		return string();
-	string value = *it->second.begin();
-	trim(value);
-	return value;
-}
-
-servio::Option<string> Header::tryGet(const string &key) const {
+servio::Option<string> Header::get(const string &key) const {
 	const_iterator it = _entries.find(key);
 	if (it == _entries.end() || it->second.empty())
 		return servio::None<string>();

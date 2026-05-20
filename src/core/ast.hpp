@@ -182,23 +182,25 @@ class MainContext<Type> {
 		return _directives.find("upload_store") != _directives.end();
 	}
 
-	Redirect *getRedir() {
+	Redirect *redirect() {
 		return _directives["return"].redirect;
 	}
 
-	CgiExtension *getCGIExtensions() {
+	CgiExtension *cgiExtensions() {
 		return _directives["cgi_assign"].cgiExt;
 	}
 
-	string getUploadStore() {
+	string uploadStore() {
 		return *_directives["upload_store"].str;
 	}
 
-	ErrorPage *getErrorPage(const int &errorCode) {
+	// Returns the matching error page entry, or `None` if no directive
+	// covers this status code. The old `nullptr`-sentinel API is gone.
+	servio::Option<ErrorPage *> errorPage(const int &errorCode) {
 		for (dirIter it = _directives.begin(); it != _directives.end(); it++)
 			if (it->second.type & ERRPG && it->second.errPage->match(errorCode))
-				return it->second.errPage;
-		return nullptr;
+				return servio::Some(it->second.errPage);
+		return servio::None<ErrorPage *>();
 	}
 
 	virtual ~MainContext() {
@@ -294,7 +296,7 @@ class LocationContext<Type> : public MainContext<Type> {
 		return ::stat(path.c_str(), &stat) == 0;
 	}
 
-	string getIndex(void) {
+	string index(void) {
 		return *(_directives["index"].str);
 	}
 

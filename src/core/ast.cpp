@@ -24,7 +24,7 @@ void Redirect::prepare(MainContext<Type> *ctx) {
 		ServerName *serverName = ctx->directives()["server_name"].servName;
 
 		Address *addr = ctx->directives()["listen"].addr;
-		string host = "http://" + addr->getHost() + ':' + to_string(addr->getPort());
+		string host = "http://" + addr->host() + ':' + to_string(addr->port());
 		if (!serverName->empty())
 			host = (*serverName)[0];
 		if (path.length() > 0 && path[0] == '/' && !isLocal)

@@ -65,7 +65,7 @@ class Response {
 	friend class CGISender;
 	friend class UploadSender;
 
-	stringstream _ss;
+	stringstream _headerBuffer;
 
 	bool   _isCustomStatusCode;
 	short  _statusCode;
@@ -73,13 +73,13 @@ class Response {
 	short  _type;
 	short  _state;
 	int    _length;
-	short  _lengthState;
+	short  _rangePhase;
 
 	// Strategy: body-delivery is delegated to a sender chosen at setup time.
 	ResponseSender *_sender;
 
 	iostream *_stream;
-	int       _fd;
+	int       _cgiFd;
 
 	// sendfile() path: when serving a regular file we skip the iostream layer
 	// and ask the kernel to copy file -> socket directly. `_fileFd` is -1 when

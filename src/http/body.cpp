@@ -38,9 +38,10 @@ FILE  *BodyFile::file()       { return _file; }
 string BodyFile::tmpPath() const { return _filename; }
 
 string BodyFile::clientFilename() {
-	string value = _headers.get("Content-Disposition");
-	if (value.empty()) return value;
+	const servio::Option<string> header = _headers.get("Content-Disposition");
+	if (header.isNone()) return "";
 
+	string value = header.unwrap();
 	const size_t pos = value.find("filename=");
 	if (pos == string::npos) return "";
 
@@ -94,44 +95,55 @@ void Body::closeFile() {
 
 // --------------------------------------------------------- factory method --
 
+// Transfer-Encoding: chunked takes precedence over Content-Length.
+static bool isChunkedEncoding(const string &value) {
+	stringstream ss(value);
+	string       token;
+	while (getline(ss, token, ',')) {
+		trim(token);
+		if (iequalString(token, "Chunked"))
+			return true;
+	}
+	return false;
+}
+
+static servio::Option<size_t> parseContentLength(const string &raw) {
+	string trimmed = raw;
+	trim(trimmed);
+	if (trimmed.empty() || trimmed[0] < '1' || trimmed[0] > '9') return servio::None<size_t>();
+	if (!every(trimmed, ::isdigit)) return servio::None<size_t>();
+	const size_t length = (size_t)atoll(trimmed.c_str());
+	return length > 0 ? servio::Some(length) : servio::None<size_t>();
+}
+
 void Body::chooseStrategy(Header &headers) {
 	if (_strategyChosen) return;
 	_strategyChosen = true;
 
 	openTmpFile();
 
-	// Transfer-Encoding: chunked takes precedence over Content-Length.
-	const string te = headers.get("Transfer-Encoding");
-	if (!te.empty()) {
-		stringstream ss(te);
-		string       token;
-		while (getline(ss, token, ',')) {
-			trim(token);
-			if (iequalString(token, "Chunked")) {
-				_parser = new ChunkedBodyParser(_bodyFile);
-				return;
-			}
-		}
-	}
-
-	const servio::Result<Boundary, string> boundary =
-		Boundary::parse(headers.get("Content-Type"));
-	if (boundary.isOk()) {
-		_parser = new MultipartBodyParser(boundary.unwrap(), _bodyFiles);
+	const servio::Option<string> te = headers.get("Transfer-Encoding");
+	if (te.isSome() && isChunkedEncoding(te.unwrap())) {
+		_parser = new ChunkedBodyParser(_bodyFile);
 		return;
 	}
 
-	const string cl = headers.get("Content-Length");
-	if (!cl.empty()) {
-		string trimmed = cl;
-		trim(trimmed);
-		if (trimmed.length() && trimmed[0] >= '1' && trimmed[0] <= '9' && every(trimmed, ::isdigit)) {
-			const size_t length = (size_t)atoll(trimmed.c_str());
-			if (length > 0) {
-				_parser = new LengthedBodyParser(_bodyFile, length);
-				return;
-			}
+	const servio::Option<string> ct = headers.get("Content-Type");
+	if (ct.isSome()) {
+		const servio::Result<Boundary, string> boundary = Boundary::parse(ct.unwrap());
+		if (boundary.isOk()) {
+			_parser = new MultipartBodyParser(boundary.unwrap(), _bodyFiles);
+			return;
 		}
+	}
+
+	const servio::Option<size_t> cl =
+	    headers.get("Content-Length").isSome()
+	        ? parseContentLength(headers.get("Content-Length").unwrap())
+	        : servio::None<size_t>();
+	if (cl.isSome()) {
+		_parser = new LengthedBodyParser(_bodyFile, cl.unwrap());
+		return;
 	}
 
 	// No transfer-encoding, no boundary, no positive Content-Length.

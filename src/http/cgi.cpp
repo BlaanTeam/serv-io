@@ -12,7 +12,7 @@ Result<CGI, string> CGI::create(LocationContext<Type> *location, Request *req, R
 	c._res = res;
 	c._location = location;
 
-	stringstream ss(req->getPath().substr(location->location().length() + 1));
+	stringstream ss(req->path().substr(location->location().length() + 1));
 	string       script;
 	getline(ss, script, '/');
 	getline(ss, c._pathInfo, '\0');
@@ -20,7 +20,7 @@ Result<CGI, string> CGI::create(LocationContext<Type> *location, Request *req, R
 	c._scriptName     = joinPath(location->location(), script);
 	c._scriptFileName = c._scriptName;
 
-	CgiExtension *exts = location->getCGIExtensions();
+	CgiExtension *exts = location->cgiExtensions();
 	if (!exts->match(script))
 		return R::err("`" + script + "` does not match any cgi_assign extension");
 
@@ -37,14 +37,14 @@ Result<CGI, string> CGI::create(LocationContext<Type> *location, Request *req, R
 void CGI::init() {
 	metaVariables.add("GATEWAY_INTERFACE", "CGI/1.1");
 	metaVariables.add("DOCUMENT_ROOT", *_location->directives()["root"].str);
-	metaVariables.add("QUERY_STRING", _req->getQuery());
-	metaVariables.add("REQUEST_METHOD", httpMethods[(int)log2((int)_req->getMethod())]);
-	metaVariables.add("REQUEST_URI", _req->getPath() + (!_req->getQuery().empty() ? "?" : "") + _req->getQuery());
+	metaVariables.add("QUERY_STRING", _req->query());
+	metaVariables.add("REQUEST_METHOD", httpMethods[(int)log2((int)_req->method())]);
+	metaVariables.add("REQUEST_URI", _req->path() + (!_req->query().empty() ? "?" : "") + _req->query());
 	metaVariables.add("SCRIPT_FILENAME", _scriptFileName);
 	metaVariables.add("SCRIPT_NAME", _scriptName);
 	metaVariables.add("PATH_INFO", _pathInfo);
 
-	for (Request::headerIter it = _req->getHeaders().begin(); it != _req->getHeaders().end(); ++it)
+	for (Request::headerIter it = _req->headers().begin(); it != _req->headers().end(); ++it)
 		metaVariables.setAll("HTTP_" + it->first, it->second);
 }
 

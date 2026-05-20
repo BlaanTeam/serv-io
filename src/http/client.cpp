@@ -42,7 +42,7 @@ bool Client::handleRequest(const char *buf, size_t len) {
 	_req.consume(buf, len);
 
 	VirtualServer *virtualServer = config.match(Address(_connection.first),
-	                                            _req.getHeaders().get("Host"));
+	                                            _req.headers().get("Host").unwrapOr(""));
 	_ctx = virtualServer;
 
 	const bool invalid    = !_req.valid();
@@ -69,31 +69,31 @@ bool Client::handleRequest(const char *buf, size_t len) {
 // response and then returns — no goto, no fallthrough.
 void Client::resolveResponse(VirtualServer *virtualServer) {
 	if (!_req.valid())
-		return _res.setupErrorResponse(_req.getStatusCode(), virtualServer);
+		return _res.setupErrorResponse(_req.statusCode(), virtualServer);
 
-	Location *location = virtualServer->match(_req.getPath());
+	Location *location = virtualServer->match(_req.path());
 	_ctx = location;
 
 	if (virtualServer->isRedirectable())
-		return _res.setupRedirectResponse(virtualServer->getRedir(), virtualServer);
+		return _res.setupRedirectResponse(virtualServer->redirect(), virtualServer);
 	if (!location)
 		return _res.setupErrorResponse(NOT_FOUND, virtualServer);
 	if (_req.isTooLarge(location->directives()["client_max_body_size"].value))
 		return _res.setupErrorResponse(REQUEST_ENTITY_TOO_LARGE, virtualServer);
 	if (location->isRedirectable())
-		return _res.setupRedirectResponse(location->getRedir(), location);
-	if (!location->isAllowedMethod(_req.getMethod()))
+		return _res.setupRedirectResponse(location->redirect(), location);
+	if (!location->isAllowedMethod(_req.method()))
 		return _res.setupErrorResponse(METHOD_NOT_ALLOWED, location);
 
 	const size_t locationLength = location->location().length();
-	const size_t pathLength     = _req.getPath().length();
+	const size_t pathLength     = _req.path().length();
 
 	if (location->isCGI() && pathLength > locationLength && tryCGI(location))
 		return;
-	if (location->isUpload() && _req.getMethod() == POST)
+	if (location->isUpload() && _req.method() == POST)
 		return _res.setupUploadResponse(location, &_req);
 
-	resolveStaticFile(location, _req.getPath());
+	resolveStaticFile(location, _req.path());
 }
 
 // Spawn the CGI child and install a CGISender. Returns false if the
@@ -103,7 +103,7 @@ bool Client::tryCGI(Location *location) {
 	if (r.isErr())
 		return false;
 	CGI cgi = r.unwrap();
-	_pid = cgi.spawn(_fds, _req.getFileno());
+	_pid = cgi.spawn(_fds, _req.fileno());
 	_res.setupCGIResponse(_fds[0], &_req);
 	return true;
 }
@@ -120,17 +120,17 @@ void Client::resolveStaticFile(Location *location, string path) {
 
 	if (S_ISDIR(fileStat.st_mode)) {
 		// Redirect directory requests that lack a trailing slash.
-		const size_t pathLength = _req.getPath().length();
-		if (pathLength > 1 && _req.getPath()[pathLength - 1] != '/') {
-			Redirect redir(MOVED_PERMANENTLY, joinPath(_req.getPath(), "/"), true);
+		const size_t pathLength = _req.path().length();
+		if (pathLength > 1 && _req.path()[pathLength - 1] != '/') {
+			Redirect redir(MOVED_PERMANENTLY, joinPath(_req.path(), "/"), true);
 			return _res.setupRedirectResponse(&redir, location);
 		}
 
-		const string indexPath = joinPath(path, location->getIndex());
+		const string indexPath = joinPath(path, location->index());
 		if (!access(indexPath.c_str(), F_OK | R_OK) && _res.setupNormalResponse(indexPath))
 			return;
 		if (location->isAutoIndexable())
-			return _res.setupDirectoryListing(path, _req.getPath());
+			return _res.setupDirectoryListing(path, _req.path());
 		return _res.setupErrorResponse(FORBIDDEN, location);
 	}
 

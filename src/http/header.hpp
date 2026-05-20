@@ -30,9 +30,12 @@ class Header {
 	void erase(const string &key);
 	void clear();
 
-	bool                  found(const string &key)   const;
-	string                get(const string &key);
-	servio::Option<string> tryGet(const string &key) const;
+	bool found(const string &key) const;
+
+	// Single-value lookup. Returns the trimmed first value, or `None` when
+	// the header is absent (or its value set is empty). Replaces the old
+	// `""`-sentinel returning `get()`.
+	servio::Option<string> get(const string &key) const;
 
 	// Replace (or create) the multi-value set associated with `key`.
 	void setAll(const string &key, const ValueSet &values);

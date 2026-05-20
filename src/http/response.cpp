@@ -40,7 +40,7 @@ static ssize_t sendfileTo(int sock, int filefd, off_t *offset, size_t count) {
 
 Response::Response() {
 	_keepAlive = true;
-	_lengthState = INIT_LENGTH;
+	_rangePhase = INIT_LENGTH;
 	_stream = nullptr;
 	_sender = nullptr;
 	_fileFd = -1;
@@ -108,13 +108,13 @@ void Response::init() {
 void Response::prepare(void) {
 	if (!_isCustomStatusCode)
 		_statusStringCode = httpStatusCodes[_statusCode];
-	_ss << HTTP_VERSION << " " << to_string(_statusCode) << " " << _statusStringCode << CRLF;
+	_headerBuffer << HTTP_VERSION << " " << to_string(_statusCode) << " " << _statusStringCode << CRLF;
 
 	Header::iterator it = _headers.begin();
 
 	while (it != _headers.end()) {
 		for (set<string>::iterator it_ = it->second.begin(); it_ != it->second.end(); it_++)
-			_ss << it->first << ": " << *it_ << CRLF;
+			_headerBuffer << it->first << ": " << *it_ << CRLF;
 
 		it++;
 	}
@@ -157,7 +157,7 @@ void Response::send(const sockfd &fd) {
 		if (!_sender->prepareHeaders(*this))
 			return;  // sender wants to defer — try again on the next poll
 		prepare();
-		::send(fd, _ss.str().c_str(), _ss.str().size(), 0);
+		::send(fd, _headerBuffer.str().c_str(), _headerBuffer.str().size(), 0);
 		::send(fd, CRLF, 2, 0);
 		setState(RES_BODY);
 	}
@@ -176,25 +176,24 @@ static iostream *resolveErrorBody(int statusCode,
                                   int *nextFallback /* in/out: status to retry with */) {
 	*nextFallback = 0;
 
-	if (ctx) {
-		ErrorPage *errPage = ctx->getErrorPage(statusCode);
-		if (errPage) {
-			if (!errPage->exists()) {
-				if (isBuiltIn) {
-					*nextFallback = NOT_FOUND;
-					return NULL;
-				}
-				if (errno == EACCES) {
-					*nextFallback = FORBIDDEN;
-					return NULL;
-				}
-				return buildResponseBody(NOT_FOUND);
-			}
-			outContentType = mimeTypes.choiceMimeType(errPage->page);
-			return new fstream(errPage->page.c_str(), ios::in);
-		}
+	if (!ctx)
+		return buildResponseBody(statusCode);
+
+	const servio::Option<ErrorPage *> maybePage = ctx->errorPage(statusCode);
+	if (maybePage.isNone())
+		return buildResponseBody(statusCode);
+
+	ErrorPage *errPage = maybePage.unwrap();
+	if (errPage->exists()) {
+		outContentType = mimeTypes.choiceMimeType(errPage->page);
+		return new fstream(errPage->page.c_str(), ios::in);
 	}
-	return buildResponseBody(statusCode);
+
+	// Configured error_page file is missing — fall back, preserving the
+	// existing recursion behavior.
+	if (isBuiltIn)        { *nextFallback = NOT_FOUND; return NULL; }
+	if (errno == EACCES)  { *nextFallback = FORBIDDEN; return NULL; }
+	return buildResponseBody(NOT_FOUND);
 }
 
 void Response::setupErrorResponse(const int &statusCode, MainContext<Type> *ctx, bool isBuiltIn) {
@@ -301,9 +300,9 @@ bool Response::match(const int &state) const {
 
 void Response::reset(void) {
 	_headers.clear();
-	_ss.str("");
-	_ss.clear();
-	_lengthState = INIT_LENGTH;
+	_headerBuffer.str("");
+	_headerBuffer.clear();
+	_rangePhase = INIT_LENGTH;
 
 	delete _stream;
 	_stream = nullptr;
@@ -375,12 +374,12 @@ void Response::sendChunkedBody(const sockfd &fd) {
 
 	_stream->read(buff, (1 << 10));
 	if (_stream->gcount() > 0) {
-		_ss << hex << _stream->gcount() << CRLF;
-		::send(fd, _ss.str().c_str(), _ss.str().size(), 0);
+		_headerBuffer << hex << _stream->gcount() << CRLF;
+		::send(fd, _headerBuffer.str().c_str(), _headerBuffer.str().size(), 0);
 		::send(fd, buff, _stream->gcount(), 0);
 		::send(fd, CRLF, 2, 0);
-		_ss.str("");
-		_ss.clear();
+		_headerBuffer.str("");
+		_headerBuffer.clear();
 	}
 	setState(_stream->eof() ? RES_DONE : _state);
 }
@@ -390,9 +389,9 @@ void Response::setupRangedBody() {
 	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream);
 
 	if (_fileFd >= 0)
-		addHeader("Content-Length", to_string((long long)range.getContentLength(fileSize)));
+		addHeader("Content-Length", to_string((long long)range.contentLength(fileSize)));
 	else
-		addHeader("Content-Length", to_string(range.getContentLength(_stream)));
+		addHeader("Content-Length", to_string(range.contentLength(_stream)));
 	setStatusCode(PARTIAL_CONTENT);
 
 	if (range.type == NOL)
@@ -427,7 +426,7 @@ void Response::sendRangedBody(const sockfd &fd) {
 		length = (end >= start) ? (end - start + 1) : 0;
 	}
 
-	if (_lengthState == INIT_LENGTH) {
+	if (_rangePhase == INIT_LENGTH) {
 		if (_fileFd >= 0) {
 			_filePos = (off_t)start;
 			_length  = (int)length;
@@ -435,20 +434,20 @@ void Response::sendRangedBody(const sockfd &fd) {
 			_stream->seekg(start);
 			_length  = (int)length;
 		}
-		_lengthState = ONGOING_LENGTH;
+		_rangePhase = ONGOING_LENGTH;
 	}
 
 	if (_fileFd >= 0) {
 		if (_length <= 0) {
-			_lengthState = DONE_LENGTH;
+			_rangePhase = DONE_LENGTH;
 		} else {
 			size_t  want = (_length > (1 << 16)) ? (size_t)(1 << 16) : (size_t)_length;
 			ssize_t sent = sendfileTo(fd, _fileFd, &_filePos, want);
 			if (sent < 0) {
-				_lengthState = DONE_LENGTH;
+				_rangePhase = DONE_LENGTH;
 			} else {
 				_length -= (int)sent;
-				if (_length <= 0) _lengthState = DONE_LENGTH;
+				if (_length <= 0) _rangePhase = DONE_LENGTH;
 			}
 		}
 	} else if (_length > (1 << 10))
@@ -456,7 +455,7 @@ void Response::sendRangedBody(const sockfd &fd) {
 	else
 		sendLessThanKiloByte(fd);
 
-	if (_lengthState & DONE_LENGTH)
+	if (_rangePhase & DONE_LENGTH)
 		_state = RES_DONE;
 }
 
@@ -474,7 +473,7 @@ void Response::sendLessThanKiloByte(const sockfd &fd) {
 	_stream->read(buff, _length);
 	::send(fd, buff, _stream->gcount(), 0);
 	_length -= _stream->gcount();
-	_lengthState = DONE_LENGTH;
+	_rangePhase = DONE_LENGTH;
 }
 
 bool Response::setupCGIBody() {
@@ -482,7 +481,7 @@ bool Response::setupCGIBody() {
 	int    nbyte;
 	char   chr;
 	bool   got = false;
-	while ((nbyte = read(_fd, &chr, 1)) > 0) {
+	while ((nbyte = read(_cgiFd, &chr, 1)) > 0) {
 		line += chr;
 		if (line.find(CRLF) != string::npos || line.find(LF) != string::npos) {
 			stringstream ss(line);
@@ -496,14 +495,12 @@ bool Response::setupCGIBody() {
 	if (nbyte <= 0 && !got)
 		return false;
 	changeState(RES_HEADER);  // reset the state to header!
-	string contentType = _headers.get("Content-Type");
-	if (contentType.empty())
-		contentType = mimeTypes[""];
+	const string contentType = _headers.get("Content-Type").unwrapOr(mimeTypes[""]);
 
-	string status = _headers.get("Status");
-	if (!status.empty()) {
+	const servio::Option<string> status = _headers.get("Status");
+	if (status.isSome()) {
 		char buff[(1 << 10)];
-		sscanf(status.c_str(), "%hd %[^\n]1000s", &_statusCode, buff);
+		sscanf(status.unwrap().c_str(), "%hd %[^\n]1000s", &_statusCode, buff);
 		_isCustomStatusCode = true;
 		_statusStringCode = buff;
 	}
@@ -514,16 +511,16 @@ bool Response::setupCGIBody() {
 
 void Response::sendCGIBody(const sockfd &fd) {
 	char buff[(1 << 10)];
-	int  nbyte = read(_fd, buff, (1 << 10));
+	int  nbyte = read(_cgiFd, buff, (1 << 10));
 	if (nbyte <= 0) {
 		setState(RES_DONE);
-		close(_fd);
+		close(_cgiFd);
 	} else
 		::send(fd, buff, nbyte, 0);
 }
 
 void Response::extractRange(Request &req) {
-	_range = req.getRange();
+	_range = req.range();
 	delete _sender;
 	if (_range.empty()) {
 		_sender = new LengthedSender();
@@ -543,7 +540,7 @@ bool Response::setupUploadBody() {
 	if (!_req->match(REQ_DONE))
 		return false;
 
-	map<int, BodyFile> &bodyFiles = _req->getBodyFiles();
+	map<int, BodyFile> &bodyFiles = _req->bodyFiles();
 	map<string, bool>   uploaded;  // filename -> success
 
 	for (map<int, BodyFile>::iterator it = bodyFiles.begin(); it != bodyFiles.end(); ++it) {
@@ -552,7 +549,7 @@ bool Response::setupUploadBody() {
 		if (filename.empty())
 			filename = part.tmpPath();
 
-		const string newPath = joinPath(_location->getUploadStore(), filename);
+		const string newPath = joinPath(_location->uploadStore(), filename);
 		const bool   ok = (rename(part.tmpPath().c_str(), newPath.c_str()) == 0);
 		uploaded[filename] = ok;
 	}
@@ -634,7 +631,7 @@ Response::Builder &Response::Builder::asUpload()   { INSTALL_SENDER(UploadSender
 
 Response::Builder &Response::Builder::cgi(int childFd, Request *req) {
 	asCGI();
-	_r._fd  = childFd;
+	_r._cgiFd  = childFd;
 	_r._req = req;
 	return status(OK).keepAlive(true);
 }
