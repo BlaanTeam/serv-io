@@ -33,74 +33,81 @@ bool LengthedBodyParser::isError() const {
 // --------------------------------------------------------- ChunkedBodyParser --
 
 ChunkedBodyParser::ChunkedBodyParser(FILE *dst)
-	: _dst(dst), _phase(ReadSize), _chunkRemaining(0), _done(false), _error(false) {}
+	: _dst(dst), _phase(ReadSizeLine), _chunkRemaining(0), _done(false), _error(false) {}
 
 bool ChunkedBodyParser::isDone() const { return _done; }
 bool ChunkedBodyParser::isError() const { return _error; }
 
+// Parses a single hex size line. Returns false on bad input.
+static bool parseHexSize(const string &line, size_t &out) {
+	if (line.empty()) return false;
+	char *end = NULL;
+	const long n = strtol(line.c_str(), &end, 16);
+	if (n < 0 || end == NULL || *end != '\0') return false;
+	out = (size_t)n;
+	return true;
+}
+
 // Consumes as many bytes as possible and bails out on incomplete frames so
-// the next recv() can resume.
+// the next recv() can resume. Size and trailer lines flow through
+// `_lineReader`; the data span is byte-counted directly.
 size_t ChunkedBodyParser::consume(const char *buf, size_t len) {
 	size_t i = 0;
 	while (i < len && !_done && !_error) {
 		switch (_phase) {
-		case ReadSize: {
-			char c = buf[i++];
-			if (c == '\r') continue;     // tolerate CR; LF terminates the size line
-			if (c == '\n') {
-				if (_sizeLine.empty()) {
-					_error = true;
-					return i;
-				}
-				size_t size = (size_t)strtol(_sizeLine.c_str(), NULL, 16);
-				_sizeLine.clear();
-				_chunkRemaining = size;
-				_phase = (size == 0) ? ReadTrailerCR : ReadData;
-				continue;
-			}
-			if (!isxdigit((unsigned char)c)) {
+		case ReadSizeLine: {
+			i += _lineReader.feed(buf + i, len - i);
+			servio::Option<string> line = _lineReader.takeLine();
+			if (line.isNone()) return i;
+
+			size_t size = 0;
+			if (!parseHexSize(line.unwrap(), size)) {
 				_error = true;
 				return i;
 			}
-			_sizeLine += c;
+			_chunkRemaining = size;
+			_phase = (size == 0) ? ReadTrailerLine : ReadData;
 			break;
 		}
+
 		case ReadData: {
 			const size_t avail = len - i;
-			const size_t take = (avail < _chunkRemaining) ? avail : _chunkRemaining;
+			const size_t take  = (avail < _chunkRemaining) ? avail : _chunkRemaining;
 			if (take && _dst)
 				fwrite(buf + i, 1, take, _dst);
 			i += take;
 			_chunkRemaining -= take;
-			if (_chunkRemaining == 0)
-				_phase = ReadDataCR;
+			if (_chunkRemaining == 0) {
+				_lineReader.reset();   // about to use it for the CRLF terminator
+				_phase = ReadDataCRLF;
+			}
 			break;
 		}
-		case ReadDataCR: {
-			char c = buf[i++];
-			if (c == '\r')      _phase = ReadDataLF;
-			else if (c == '\n') _phase = ReadSize;
-			else { _error = true; return i; }
+
+		case ReadDataCRLF: {
+			i += _lineReader.feed(buf + i, len - i);
+			servio::Option<string> line = _lineReader.takeLine();
+			if (line.isNone()) return i;
+			// The terminator must be an empty line — anything else is a framing error.
+			if (!line.unwrap().empty()) {
+				_error = true;
+				return i;
+			}
+			_lineReader.reset();
+			_phase = ReadSizeLine;
 			break;
 		}
-		case ReadDataLF: {
-			char c = buf[i++];
-			if (c != '\n') { _error = true; return i; }
-			_phase = ReadSize;
+
+		case ReadTrailerLine: {
+			i += _lineReader.feed(buf + i, len - i);
+			servio::Option<string> line = _lineReader.takeLine();
+			if (line.isNone()) return i;
+			if (line.unwrap().empty()) {
+				_done = true;
+				return i;
+			}
+			// Non-empty trailer header — accept and discard.
 			break;
-		}
-		case ReadTrailerCR: {
-			char c = buf[i++];
-			if (c == '\r')      _phase = ReadTrailerLF;
-			else if (c == '\n') { _done = true; return i; }
-			// else: trailer header line we don't care about — stay in ReadTrailerCR
-			break;
-		}
-		case ReadTrailerLF: {
-			char c = buf[i++];
-			if (c != '\n') { _error = true; return i; }
-			_done = true;
-			return i;
 		}
 		}
 	}

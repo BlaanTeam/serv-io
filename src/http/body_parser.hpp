@@ -8,6 +8,7 @@
 
 #include "./body.hpp"
 #include "./boundary.hpp"
+#include "./line_reader.hpp"
 #include "./streamsearch.hpp"
 
 using namespace std;
@@ -45,7 +46,8 @@ class LengthedBodyParser : public BodyParser {
 };
 
 // Decodes the "<hex-size>\r\n<bytes>\r\n…0\r\n\r\n" Transfer-Encoding=chunked
-// framing. Trailer headers are accepted but discarded.
+// framing. Size lines and trailer headers are read through a `LineReader`;
+// the data span itself is byte-counted.
 class ChunkedBodyParser : public BodyParser {
    public:
 	explicit ChunkedBodyParser(FILE *dst);
@@ -56,20 +58,18 @@ class ChunkedBodyParser : public BodyParser {
 
    private:
 	enum Phase {
-		ReadSize,
-		ReadData,
-		ReadDataCR,
-		ReadDataLF,
-		ReadTrailerCR,
-		ReadTrailerLF
+		ReadSizeLine,    // pull "<hex>" via LineReader
+		ReadData,        // count exactly _chunkRemaining bytes into _dst
+		ReadDataCRLF,    // skip the trailing CRLF after a data chunk
+		ReadTrailerLine  // accept (and discard) trailer header lines until empty
 	};
 
-	FILE  *_dst;
-	Phase  _phase;
-	string _sizeLine;
-	size_t _chunkRemaining;
-	bool   _done;
-	bool   _error;
+	FILE       *_dst;
+	Phase       _phase;
+	LineReader  _lineReader;
+	size_t      _chunkRemaining;
+	bool        _done;
+	bool        _error;
 };
 
 // Parses multipart/form-data using a streamsearch-style needle scanner on

@@ -122,6 +122,19 @@ TEST(ChunkedBodyParser, resumesAcrossFeeds) {
 	ASSERT_STREQ(tmp.contents(), "hello");
 }
 
+TEST(ChunkedBodyParser, dataContainsNewlines) {
+	TmpFile           tmp;
+	ChunkedBodyParser p(tmp.fp);
+
+	// Chunk payload has embedded '\n' and '\r' — must NOT be misinterpreted
+	// as a line terminator by the LineReader-driven size/trailer logic.
+	const string frame = "5\r\nA\nB\rC\r\n0\r\n\r\n";
+	p.consume(frame.data(), frame.size());
+
+	ASSERT_TRUE(p.isDone());
+	ASSERT_STREQ(tmp.contents(), "A\nB\rC");
+}
+
 // --------------------------------------------------------- MultipartBodyParser
 
 namespace {
