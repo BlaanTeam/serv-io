@@ -13,11 +13,24 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
 - `sendfile(2)` path for static file responses (Darwin + Linux, with a
   `pread + send` fallback for other platforms). Range responses pass the
   kernel an offset directly.
+- Rust-style `Option<T>` / `Result<T, E>` in `utility/result.hpp`. Applied
+  to `normpath` (now `Option<string>`) and `Boundary::parse` (now
+  `Result<Boundary, string>`).
+- **BodyParser Strategy pattern** — `LengthedBodyParser`,
+  `ChunkedBodyParser`, `MultipartBodyParser` implementations of an abstract
+  `BodyParser`. `Body` became a thin factory/coordinator.
+- Unit-test framework under `tests/unit/` (custom, ~120 LoC, GTest-shaped
+  `TEST()` macro). 60 tests covering streamsearch, body parsers, helpers,
+  boundary, range, header, and Option/Result.
+- End-to-end test driver under `tests/e2e/` (bash + curl). 19 tests
+  covering GET, sendfile-backed range requests, multipart uploads (single /
+  multi / fragmented 200KB), chunked POST, 404.
+- `make test`, `make test-unit`, `make test-e2e` targets.
 - OSS scaffolding: `LICENSE` (MIT), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `SECURITY.md`, `CHANGELOG.md`, `.editorconfig`, `.clang-format`,
   GitHub issue and pull request templates, CI workflow.
 - `docs/architecture.md` and `docs/grammar.md` (moved from `conf/`).
-- `examples/servio.conf` (sample configuration).
+- `examples/servio.conf` and `examples/minimal.conf`.
 
 ### Changed
 - Request parser is now `(const char*, size_t)`-driven instead of being fed
@@ -41,6 +54,17 @@ and the project tries to follow [Semantic Versioning](https://semver.org/).
 - Self-referential `Body`/`Request` state no longer dangles when these
   objects are copied through `ClientMap` (`Body` is now its own
   `StreamSearch::Sink`).
+- `Range: bytes=-N` (suffix range) now serves the correct last-N bytes
+  instead of computing a bogus offset that closed the connection short.
+- "Upload Succeffuly" typo + truncated `<h1>` in the upload response; the
+  HTML status mapping was also inverted (a successful `rename` was being
+  shown as "Not Uploaded"). Both are fixed.
+
+### Changed
+- Header guards modernized from reserved `__XXX_H__` form to
+  `SERVIO_XXX_HPP`.
+- Bit-flag `#define`s for request/response state and response type are now
+  proper typed `enum`s.
 
 ## [1.0.0] — initial release
 

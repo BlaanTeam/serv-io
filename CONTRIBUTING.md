@@ -60,18 +60,21 @@ make install PREFIX=$HOME/.local
 
 ## Tests
 
-Run the smoke checks in `tests/` (if present) before submitting changes:
+Two suites live under `tests/`:
 
 ```bash
-make re
-./servio -t -c examples/servio.conf   # syntax check the config
-./servio -c examples/servio.conf &    # start
-curl -i http://localhost:8081/
-curl -F file=@README.md http://localhost:8081/upload
+make test          # unit + e2e
+make test-unit     # C++ unit tests (~50ms)
+make test-e2e      # boots servio on $SERVIO_TEST_PORT (default 18081)
 ```
 
-CI (`.github/workflows/ci.yml`) compiles on Linux and macOS and runs the same
-smoke checks — keep it green.
+See [tests/README.md](tests/README.md) for the layout, helper APIs, and how
+to add new tests. CI (`.github/workflows/ci.yml`) runs both suites on Ubuntu
+and macOS — keep it green.
+
+The codebase uses Rust-style `Option<T>` / `Result<T, E>` (in
+`src/utility/result.hpp`) for fallible APIs. Prefer them to `pair<bool, T>`
+or "valid()" sentinel flags when introducing new parsing or I/O entry points.
 
 ## Pull requests
 
