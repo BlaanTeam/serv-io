@@ -1,98 +1,100 @@
 #include "range.hpp"
 
+#include <cctype>
+
 size_t RangeSpecifier::getContentLength(iostream *stream) {
 	return getContentLength(getFileSize(stream));
 }
 
 size_t RangeSpecifier::getContentLength(size_t fileSize) {
-	long long contentLength = rangeEnd - rangeStart + 1;
+	long long length = (long long)rangeEnd - (long long)rangeStart + 1;
 
 	if (type == NOL)
-		contentLength = fileSize - rangeStart;
+		length = (long long)fileSize - (long long)rangeStart;
 	else if (type & NOF)
-		contentLength = min(fileSize, rangeEnd);
-	return contentLength < 0 ? 0 : contentLength;
+		length = (long long)((rangeEnd < fileSize) ? rangeEnd : fileSize);
+	return length < 0 ? 0 : (size_t)length;
 }
 
 void RangeSpecifier::setupSeek(iostream *stream) {
-	if (type == NOL)
-		stream->seekg(rangeStart);
-	else if (type == NOF)
+	if (type == NOF)
 		stream->seekg(getFileSize(stream) - rangeEnd);
 	else
 		stream->seekg(rangeStart);
 }
 
-Range::Range() {
-	_valid = false;
-}
+Range::Range() {}
+
+const vector<RangeSpecifier> &Range::specifiers() const { return _specs; }
+bool                          Range::empty()      const { return _specs.empty(); }
 
 // Range: <unit>=<range-start>-
 // Range: <unit>=-<suffix-length>
 // Range: <unit>=<range-start>-<range-end>
 // Range: <unit>=<range-start>-<range-end>, <unit>=<range-start>-<range-end>
+servio::Result<Range, string> Range::parse(const string &headerValue) {
+	typedef servio::Result<Range, string> R;
 
-Range::Range(const string &value) {
-	stringstream ss;
-	string       part(value);
-
+	string part(headerValue);
 	trim(part);
+
 	if (part.rfind("bytes=", 0) != 0)
-		goto invalid;
-	ss.str(part.substr(6));  // skip "bytes="
-	_valid = true;
+		return R::err("unsupported range unit (only `bytes=` is accepted)");
+
+	Range range;
+	stringstream ss(part.substr(6));  // skip "bytes="
 	while (getline(ss, part, ',')) {
 		trim(part);
-		rangeSpecifiers.push_back(parse(part));
-		if (!valid())
-			return;
+		servio::Result<RangeSpecifier, string> one = parseOne(part);
+		if (one.isErr())
+			return R::err(one.unwrapErr());
+		range._specs.push_back(one.unwrap());
 	}
-	return;
-invalid:
-	_valid = false;
+	if (range._specs.empty())
+		return R::err("range header has no specifiers");
+	return R::ok(range);
 }
 
-static int parseUnit(const string &value, size_t &unit) {
-	if (!every(value, ::isdigit))
-		return -1;
-	unit = value.length() ? stod(value) : -1;
-	return value.length();
+static bool parseUnit(const string &value, size_t &out) {
+	if (value.empty()) return false;
+	for (size_t i = 0; i < value.size(); ++i)
+		if (!isdigit((unsigned char)value[i]))
+			return false;
+	out = (size_t)stod(value);
+	return true;
 }
 
-// Sorry smart hard coding !!
+servio::Result<RangeSpecifier, string> Range::parseOne(const string &spec) {
+	typedef servio::Result<RangeSpecifier, string> R;
 
-RangeSpecifier Range::parse(const string &value) {
-	RangeSpecifier rs = {-1, -1, NON};
-	string         tmp = value;
+	RangeSpecifier rs = {(size_t)-1, (size_t)-1, NON};
 
-	_valid = true;
+	if (spec.empty())
+		return R::err("empty range specifier");
 
-	if (value.rfind("-", 0) == 0) {
-		if (parseUnit(tmp.substr(1), rs.rangeEnd) == -1)
-			goto invalid;
+	if (spec[0] == '-') {
+		if (!parseUnit(spec.substr(1), rs.rangeEnd))
+			return R::err("malformed suffix range: " + spec);
 		rs.type = NOF;
-	} else if (isdigit(value[0])) {
-		string token = tmp.substr(0, tmp.find("-"));
-		int    n = parseUnit(token, rs.rangeStart);
-		if (n == -1 || token.length() == tmp.length())  // in case -> bytes=100
-			goto invalid;
-		token = tmp.substr(token.length() + 1);
-		n = parseUnit(token, rs.rangeEnd);
-		rs.type = !n ? NOL : rs.type;
-		if (n == -1 || (rs.rangeEnd < rs.rangeStart && rs.type & NON))
-			goto invalid;
-	} else
-		goto invalid;
-	return rs;
-invalid:
-	_valid = false;
-	return RangeSpecifier();
-}
+		return R::ok(rs);
+	}
 
-bool Range::valid(void) const {
-	return _valid;
-}
+	const size_t dash = spec.find('-');
+	if (dash == string::npos || !isdigit((unsigned char)spec[0]))
+		return R::err("missing dash in range: " + spec);
 
-vector<RangeSpecifier> Range::getRangeSpecifiers(void) const {
-	return rangeSpecifiers;
+	if (!parseUnit(spec.substr(0, dash), rs.rangeStart))
+		return R::err("invalid range start in: " + spec);
+
+	const string endTok = spec.substr(dash + 1);
+	if (endTok.empty()) {
+		rs.type = NOL;
+		return R::ok(rs);
+	}
+	if (!parseUnit(endTok, rs.rangeEnd))
+		return R::err("invalid range end in: " + spec);
+	if (rs.rangeEnd < rs.rangeStart)
+		return R::err("range end precedes start: " + spec);
+
+	return R::ok(rs);
 }

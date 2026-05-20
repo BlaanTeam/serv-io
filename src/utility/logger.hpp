@@ -1,5 +1,5 @@
-#ifndef __LOGGER_H__
-#define __LOGGER_H__
+#ifndef SERVIO_LOGGER_HPP
+#define SERVIO_LOGGER_HPP
 
 #include <cerrno>
 #include <ctime>

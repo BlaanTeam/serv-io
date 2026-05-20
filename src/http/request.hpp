@@ -1,42 +1,34 @@
-#ifndef __REQUEST_H__
-#define __REQUEST_H__
+#ifndef SERVIO_REQUEST_HPP
+#define SERVIO_REQUEST_HPP
 
 #include <map>
 #include <string>
 
-#include "./header.hpp"
-#include "./status_codes.hpp"
 #include "./body.hpp"
-#include "http/range.hpp"
+#include "./header.hpp"
+#include "./range.hpp"
+#include "./status_codes.hpp"
 #include "utility/helpers.hpp"
 #include "utility/utils.hpp"
 
 using namespace std;
 
-#define REQ_INIT (1 << 0)
-#define REQ_LINE (1 << 1)
-#define REQ_HEADER (1 << 2)
-#define REQ_BODY (1 << 3)
-#define REQ_DONE (1 << 4)
-#define REQ_INVALID (1 << 5)
+// Request parser state. Flags are bitwise-combined and tested with &.
+enum RequestState {
+	REQ_INIT    = 1 << 0,   // before the first non-whitespace byte
+	REQ_LINE    = 1 << 1,   // accumulating the start-line
+	REQ_HEADER  = 1 << 2,   // accumulating header lines
+	REQ_BODY    = 1 << 3,   // body parser is consuming bytes
+	REQ_DONE    = 1 << 4,   // request fully parsed
+	REQ_INVALID = 1 << 5    // protocol error; _statusCode holds the right 4xx
+};
 
-#define REQ_MAX_URI 8192
-#define REQ_MAX_HEADER_LINE 8192
-
-class Body;
+enum RequestLimits {
+	REQ_MAX_URI         = 8192,
+	REQ_MAX_HEADER_LINE = 8192
+};
 
 class Request {
-	short _state;
-	short _statusCode;
-
-	HttpMethod _method;
-	string     _path;
-	string     _query;
-	string     _line;  // accumulating request line / current header line
-
-	Header _headers;
-	Body   _body;
-
    public:
 	typedef Header::iterator headerIter;
 
@@ -50,16 +42,16 @@ class Request {
 	size_t consume(const char *buf, size_t len);
 
 	// Getters
-	string             getPath(void) const;
-	string             getQuery(void) const;
-	short              getState(void) const;
-	int                getStatusCode() const;
-	int                getFileno() const;
-	HttpMethod         getMethod(void) const;
-	bool               match(const int &state) const;
-	Header            &getHeaders(void);
+	string              getPath(void) const;
+	string              getQuery(void) const;
+	short               getState(void) const;
+	int                 getStatusCode() const;
+	int                 getFileno() const;
+	HttpMethod          getMethod(void) const;
+	bool                match(const int &state) const;
+	Header             &getHeaders(void);
 	map<int, BodyFile> &getBodyFiles();
-	Range              getRange();
+	Range               getRange();
 
 	void reset(void);
 	void closeBodyFile(void);
@@ -68,16 +60,21 @@ class Request {
 	bool isTooLarge(const int &clientMaxSize);
 
    private:
-	// Consume one byte while in REQ_INIT (skip leading CRLF/whitespace).
-	// Returns true to continue the outer loop, false to advance to REQ_LINE.
-	bool skipLeading(char c);
-
 	void parseRequestLine();
 	void parseHeaderLine();
 	void onHeadersComplete();
 
 	void changeState(short state);
 	void fail(short statusCode);
+
+	short      _state;
+	short      _statusCode;
+	HttpMethod _method;
+	string     _path;
+	string     _query;
+	string     _line;     // current request line / current header line being assembled
+	Header     _headers;
+	Body       _body;
 };
 
 #endif

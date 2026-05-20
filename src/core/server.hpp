@@ -1,5 +1,5 @@
-#ifndef __SERVIO_H__
-#define __SERVIO_H__
+#ifndef SERVIO_SERVER_HPP
+#define SERVIO_SERVER_HPP
 
 #include <map>
 #include <set>

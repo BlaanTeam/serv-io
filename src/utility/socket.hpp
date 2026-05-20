@@ -1,5 +1,5 @@
-#ifndef __SOCKET_H__
-#define __SOCKET_H__
+#ifndef SERVIO_SOCKET_HPP
+#define SERVIO_SOCKET_HPP
 
 #include <arpa/inet.h>
 #include <netdb.h>

@@ -1,11 +1,12 @@
-#ifndef __HTTP_RANGE_H__
-#define __HTTP_RANGE_H__
+#ifndef SERVIO_RANGE_HPP
+#define SERVIO_RANGE_HPP
 
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "utility/helpers.hpp"
+#include "utility/result.hpp"
 
 using namespace std;
 
@@ -26,20 +27,22 @@ struct RangeSpecifier {
 };
 
 class Range {
-	bool _valid;
+   public:
+	// Parses an HTTP `Range:` header value (without the field name). Returns
+	// `Ok(range)` on success, `Err(reason)` on protocol mismatch or bad
+	// syntax. A request without a `Range:` header should never reach this
+	// function; callers must check the header is present first.
+	static servio::Result<Range, string> parse(const string &headerValue);
 
-	vector<RangeSpecifier> rangeSpecifiers;
+	Range();                                       // empty range (no specifiers)
+
+	const vector<RangeSpecifier> &specifiers() const;
+	bool                          empty() const;
 
    private:
-	RangeSpecifier parse(const string &value);
+	static servio::Result<RangeSpecifier, string> parseOne(const string &spec);
 
-   public:
-	Range();
-	Range(const string &value);
-
-	// Getters
-	bool                   valid(void) const;
-	vector<RangeSpecifier> getRangeSpecifiers(void) const;
+	vector<RangeSpecifier> _specs;
 };
 
 #endif

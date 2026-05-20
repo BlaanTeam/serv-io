@@ -1,5 +1,5 @@
-#ifndef __CGI_H__
-#define __CGI_H__
+#ifndef SERVIO_CGI_HPP
+#define SERVIO_CGI_HPP
 
 #include <map>
 #include <sstream>

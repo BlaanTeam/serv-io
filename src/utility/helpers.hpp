@@ -1,17 +1,23 @@
-#ifndef __HELPERS_H__
-#define __HELPERS_H__
+#ifndef SERVIO_HELPERS_HPP
+#define SERVIO_HELPERS_HPP
 
 #include <deque>
 #include <functional>
 #include <sstream>
 #include <string>
 
+#include "result.hpp"
+
 using namespace std;
 
 #include "helpers.tpp"
 
-pair<bool, string> normpath(const string &path, const char sep = '/');
-bool               iequalString(const string &s1, const string &s2);
+// Normalize a path: collapses "." segments, applies "..", rejects paths that
+// would escape the root. Returns None on invalid input, Some(normalized) on
+// success. Trailing slash semantics are preserved.
+servio::Option<string> normpath(const string &path, const char sep = '/');
+
+bool iequalString(const string &s1, const string &s2);
 
 void ltrim(string &value, const string &sep = " ");
 void rtrim(string &value, const string &sep = " ");

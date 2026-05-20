@@ -1,5 +1,5 @@
-#ifndef __UTILS_H__
-#define __UTILS_H__
+#ifndef SERVIO_UTILS_HPP
+#define SERVIO_UTILS_HPP
 
 #include <sys/time.h>
 

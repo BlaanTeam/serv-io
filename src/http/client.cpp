@@ -72,7 +72,7 @@ bool Client::handleRequest(const char *buf, size_t len) {
 			size_t locationLength = location->location().length();
 			size_t pathLength = _req.getPath().length();
 
-			if (location->isCGI() && pathLength > locationLength) {  // ! GOTO : 1zx0
+			if (location->isCGI() && pathLength > locationLength) {
 				CGI cgi(location, &_req, &_res);
 				if (cgi.valid()) {
 					_pid = cgi.spawn(_fds, _req.getFileno());
@@ -91,7 +91,7 @@ bool Client::handleRequest(const char *buf, size_t len) {
 			if (!location->found(path, fileStat)) {
 				_res.setupErrorResponse(NOT_FOUND, location);
 			} else if (S_ISDIR(fileStat.st_mode)) {
-				// ? INFO : redirect in case uri without `/` in the ending
+				// Redirect directory requests that lack a trailing slash.
 				if (pathLength > 1 && _req.getPath()[pathLength - 1] != '/') {
 					Redirect redir(MOVED_PERMANENTLY, joinPath(_req.getPath(), "/"), true);
 					_res.setupRedirectResponse(&redir, location);

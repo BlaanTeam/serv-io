@@ -1,20 +1,5 @@
-#ifndef __RESPONSE_H__
-#define __RESPONSE_H__
-
-#define RES_INIT (1 << 0)
-#define RES_HEADER (1 << 1)
-#define RES_BODY (1 << 2)
-#define RES_DONE (1 << 3)
-
-#define LENGTHED_RES (1 << 0)
-#define CHUNKED_RES (1 << 1)
-#define RANGED_RES (1 << 2)
-#define CGI_RES (1 << 3)
-#define UPLOAD_RES (1 << 4)
-
-#define INIT_LENGTH (1 << 0)
-#define ONGOING_LENGTH (1 << 1)
-#define DONE_LENGTH (1 << 2)
+#ifndef SERVIO_RESPONSE_HPP
+#define SERVIO_RESPONSE_HPP
 
 #include <sys/types.h>
 
@@ -25,20 +10,44 @@
 #include <string>
 
 #include "./header.hpp"
-#include "./status_codes.hpp"
-#include "./range.hpp"
 #include "./mime_types.hpp"
+#include "./range.hpp"
 #include "./request.hpp"
+#include "./status_codes.hpp"
 #include "core/ast.hpp"
-#include "http/range.hpp"
 #include "utility/helpers.hpp"
 #include "utility/socket.hpp"
 #include "utility/utils.hpp"
 
+using namespace std;
+
+// Response writer state. Flags are bitwise-combined and tested with &.
+enum ResponseState {
+	RES_INIT   = 1 << 0,
+	RES_HEADER = 1 << 1,
+	RES_BODY   = 1 << 2,
+	RES_DONE   = 1 << 3
+};
+
+// Strategy tag — `Response` picks one at setup time and dispatches send()
+// accordingly. (Kept as bit flags for legacy mask-checking code.)
+enum ResponseType {
+	LENGTHED_RES = 1 << 0,
+	CHUNKED_RES  = 1 << 1,
+	RANGED_RES   = 1 << 2,
+	CGI_RES      = 1 << 3,
+	UPLOAD_RES   = 1 << 4
+};
+
+// Ranged-body sub-state — tracks where we are inside a single Range slice.
+enum RangedLengthState {
+	INIT_LENGTH    = 1 << 0,
+	ONGOING_LENGTH = 1 << 1,
+	DONE_LENGTH    = 1 << 2
+};
+
 #define TIMEOUT 15000
 #define CHUNK_SIZE 1024
-
-using namespace std;
 
 class Response {
 	stringstream _ss;

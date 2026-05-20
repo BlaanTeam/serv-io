@@ -4,7 +4,7 @@ CGI::CGI(LocationContext<Type> *location, Request *req, Response *res) : _isCGI(
 	_location = location;
 	_req = req;
 	_res = res;
-	stringstream ss(req->getPath().substr(location->location().length() + 1));  // ! GOT ME : 1zx0
+	stringstream ss(req->getPath().substr(location->location().length() + 1));
 	string       tmp;
 	string       scriptFileName;
 

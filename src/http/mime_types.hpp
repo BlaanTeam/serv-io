@@ -1,5 +1,5 @@
-#ifndef __MIME_TYPES_H__
-#define __MIME_TYPES_H__
+#ifndef SERVIO_MIME_TYPES_HPP
+#define SERVIO_MIME_TYPES_HPP
 
 #include <map>
 #include <string>

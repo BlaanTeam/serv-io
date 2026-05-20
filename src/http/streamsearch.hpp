@@ -1,5 +1,5 @@
-#ifndef __STREAM_SEARCH_H__
-#define __STREAM_SEARCH_H__
+#ifndef SERVIO_STREAMSEARCH_HPP
+#define SERVIO_STREAMSEARCH_HPP
 
 #include <cstddef>
 #include <string>

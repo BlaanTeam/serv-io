@@ -1,138 +1,76 @@
-#ifndef __BODY_H__
-#define __BODY_H__
+#ifndef SERVIO_BODY_HPP
+#define SERVIO_BODY_HPP
 
 #include <stdio.h>
 
 #include <map>
 #include <string>
 
-#include "./boundary.hpp"
 #include "./header.hpp"
-#include "./streamsearch.hpp"
-#include "utility/helpers.hpp"
-#include "utility/utils.hpp"
 
 using namespace std;
 
-// Overall body lifecycle
-#define BODY_INIT (1 << 0)
-#define BODY_OPEN (1 << 1)
-#define CHUNKED_BODY (1 << 2)
-#define LENGTHED_BODY (1 << 3)
-#define MULTIPARTED_BODY (1 << 4)
-#define BODY_READ (CHUNKED_BODY | LENGTHED_BODY | MULTIPARTED_BODY)
-#define BODY_DONE (1 << 5)
-#define BODY_ERROR (1 << 6)
+class BodyParser;
 
-class Request;
-
+// One per-part file produced by the multipart parser. Owns the FILE* and a
+// few headers extracted from the part's preamble (Content-Disposition etc).
 class BodyFile {
-	FILE  *_file;
-	string _filename;
-
    public:
 	Header _headers;
+
 	BodyFile();
 	~BodyFile();
 
-	void addFile(FILE *file, const string &filename);
-	void addHeader(const string &key, const string &value);
-	void write(const char *data, size_t len);
+	void   adoptFile(FILE *file, const string &filename);
+	void   addHeader(const string &key, const string &value);
+	void   write(const char *data, size_t len);
 
-	FILE  *getFile();
-	string getFilename() const;
+	FILE  *file();
+	string tmpPath() const;          // server-side tmp path (e.g., /tmp/.servio_*.io)
+	string clientFilename();         // filename advertised by the client (Content-Disposition)
 
-	string extractFilename();
+   private:
+	FILE  *_file;
+	string _filename;
 };
 
-// Streaming HTTP body parser. Three modes:
-//  - LENGTHED: read exactly Content-Length bytes into a backing tmp file.
-//  - CHUNKED : decode "<hex-size>\r\n<bytes>\r\n" frames, terminator size==0.
-//  - MULTIPART: scan for boundary delimiters using a streamsearch-style
-//    needle search; for each part, parse part headers then write the payload
-//    to its own tmp file under /tmp/.servio_*_upload.io.
-// Inherits Sink so the StreamSearch can deliver "info" (non-needle) bytes
-// directly back here without a separate back-pointer object that would
-// dangle on object copy.
-class Body : public StreamSearch::Sink {
+// Streaming HTTP body coordinator. Picks one of three BodyParser strategies
+// based on the request headers (factory), then delegates the actual decoding
+// to it. Owns the backing tmp file used as CGI stdin and the map of per-part
+// files used by multipart uploads.
+class Body {
    public:
 	Body();
 	Body(const Body &copy);
 	Body &operator=(const Body &rhs);
 	~Body();
 
-	void chooseState(Header &headers);
-	void setState(int state);
-	short getState() const;
+	// Inspect the request headers, pick a BodyParser, and open the staging
+	// tmp file. Safe to call once per request.
+	void chooseStrategy(Header &headers);
 
-	void openFile();
-	void closeFile();
-
-	// Feed raw bytes from the socket. Returns number of bytes consumed.
+	// Feed bytes from the socket. Returns bytes consumed.
 	size_t consume(const char *buf, size_t len);
 
-	map<int, BodyFile> &getBodyFiles();
-	int                 getFileno() const;
+	bool isDone()  const;
+	bool isError() const;
 
+	int                 fileno() const;
+	map<int, BodyFile> &bodyFiles();
+
+	void closeFile();
 	void reset();
 
    private:
-	// Lifecycle
-	FILE  *_bodyFile;
-	short  _bodyState;
-	string _filename;
+	void openTmpFile();
+	void destroyParser();
 
-	// Lengthed
-	size_t _contentLength;
-	size_t _written;
-
-	// Chunked sub-state
-	enum ChunkPhase {
-		CHUNK_SIZE_LINE,
-		CHUNK_DATA,
-		CHUNK_DATA_CR,
-		CHUNK_DATA_LF,
-		CHUNK_TRAILER_CR,
-		CHUNK_TRAILER_LF
-	};
-	ChunkPhase _chunkPhase;
-	string     _chunkSizeLine;
-	size_t     _chunkSize;
-	size_t     _chunkRemaining;
-
-	// Multipart sub-state
-	Boundary  _boundary;
-
-	enum MultipartPhase {
-		MP_PREAMBLE,         // scanning for first boundary; data discarded
-		MP_AFTER_BOUNDARY,   // boundary found; inspect next 2 bytes
-		MP_HEADERS,          // accumulating part headers until empty line
-		MP_PART_BODY,        // scanning for next boundary; data → current file
-		MP_EPILOGUE          // final boundary received; ignore remaining bytes
-	};
-	MultipartPhase _mpPhase;
-	StreamSearch   _search;        // needle = "\r\n--<boundary>"
-	string         _afterTail;     // 0-2 bytes pending in MP_AFTER_BOUNDARY
-	string         _headerLine;    // current header line being assembled
-
+	BodyParser        *_parser;
+	FILE              *_bodyFile;
+	string             _bodyFilePath;
 	map<int, BodyFile> _bodyFiles;
-	int                _fileIndex;
-	bool               _partFileOpen;
-
-   public:
-	// StreamSearch::Sink: receives "info" (non-needle) bytes during scanning.
-	virtual void onData(const char *data, size_t len);
-
-   private:
-	size_t consumeLengthed(const char *buf, size_t len);
-	size_t consumeChunked(const char *buf, size_t len);
-	size_t consumeMultipart(const char *buf, size_t len);
-
-	void openPartFile();
-	void closePartFile();
-	void parsePartHeaderLine(const string &line);
+	bool               _strategyChosen;
+	bool               _noBody;       // headers picked no parser at all
 };
-
-#include "./request.hpp"
 
 #endif

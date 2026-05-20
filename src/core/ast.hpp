@@ -1,5 +1,5 @@
-#ifndef __AST_H__
-#define __AST_H__
+#ifndef SERVIO_AST_HPP
+#define SERVIO_AST_HPP
 
 #include <sys/stat.h>
 #include <sys/types.h>

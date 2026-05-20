@@ -50,11 +50,11 @@ size_t Request::consume(const char *buf, size_t len) {
 		if (_state & REQ_BODY) {
 			size_t used = _body.consume(buf + i, len - i);
 			i += used;
-			if (_body.getState() & BODY_ERROR) {
+			if (_body.isError()) {
 				fail(BAD_REQUEST);
 				return i;
 			}
-			if (_body.getState() & BODY_DONE)
+			if (_body.isDone())
 				changeState(REQ_DONE);
 			break;  // body parser owns the rest of this chunk
 		}
@@ -130,9 +130,9 @@ void Request::parseRequestLine() {
 	string path = (q == string::npos) ? uri : uri.substr(0, q);
 	if (q != string::npos) _query = uri.substr(q + 1);
 
-	pair<bool, string> normalized = normpath(path);
-	if (!normalized.first) return fail(BAD_REQUEST);
-	_path = normalized.second;
+	servio::Option<string> normalized = normpath(path);
+	if (normalized.isNone()) return fail(BAD_REQUEST);
+	_path = normalized.unwrap();
 
 	int idx = 0;
 	while (idx < httpMethodCount && httpMethods[idx] != method) ++idx;
@@ -154,13 +154,9 @@ void Request::parseHeaderLine() {
 }
 
 void Request::onHeadersComplete() {
-	_body.chooseState(_headers);
-	_body.openFile();
-	if (_method & (GET | TRACE | OPTIONS | HEAD)) {
-		changeState(REQ_DONE);
-		return;
-	}
-	if (_body.getState() & BODY_DONE) {
+	_body.chooseStrategy(_headers);
+	const bool bodylessMethod = (_method & (GET | TRACE | OPTIONS | HEAD)) != 0;
+	if (bodylessMethod || _body.isDone()) {
 		changeState(REQ_DONE);
 		return;
 	}
@@ -173,11 +169,11 @@ string Request::getPath(void) const { return _path; }
 string Request::getQuery(void) const { return _query; }
 short  Request::getState(void) const { return _state; }
 int    Request::getStatusCode() const { return _statusCode; }
-int    Request::getFileno() const { return _body.getFileno(); }
+int    Request::getFileno() const { return _body.fileno(); }
 HttpMethod Request::getMethod(void) const { return _method; }
 
 Header             &Request::getHeaders(void) { return _headers; }
-map<int, BodyFile> &Request::getBodyFiles() { return _body.getBodyFiles(); }
+map<int, BodyFile> &Request::getBodyFiles() { return _body.bodyFiles(); }
 
 bool Request::valid() const { return !(_state & REQ_INVALID); }
 
@@ -191,9 +187,9 @@ bool Request::isTooLarge(const int &clientMaxSize) {
 bool Request::match(const int &state) const { return _state & state; }
 
 Range Request::getRange() {
-	string value = _headers.get("Range");
+	const string value = _headers.get("Range");
 	if (value.empty()) return Range();
-	return Range(value);
+	return Range::parse(value).unwrapOr(Range());
 }
 
 void Request::reset(void) {

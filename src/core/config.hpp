@@ -1,5 +1,5 @@
-#ifndef __CONFIG_H__
-#define __CONFIG_H__
+#ifndef SERVIO_CONFIG_HPP
+#define SERVIO_CONFIG_HPP
 
 #include <fstream>
 #include <string>

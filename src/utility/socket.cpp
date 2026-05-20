@@ -22,36 +22,33 @@ Address::Address(const sockfd &fd) : _good(true) {
 }
 
 Address::Address(const string &host, const int &port) : _host(host), _port(port), _ss_family(AF_INET), _good(true) {
-	addrinfo hints, *ret = nullptr;
-
 	if (_port < 0 || port >= (1 << 16)) {
 		_good = false;
 		return;
 	}
 
-	bzero(&hints, sizeof hints);
-	hints.ai_family = _ss_family;
-
 	sockaddr_in sin;
-
-	sin.sin_port = htons(_port);
-
 	bzero(&sin, sizeof sin);
 	sin.sin_family = _ss_family;
 	sin.sin_port = htons(_port);
 
-	if (inet_pton(_ss_family, host.c_str(), &sin.sin_addr) <= 0) {
-		if (!getaddrinfo(host.c_str(), to_string(port).c_str(), &hints, &ret)) {
-			*this = Address(*ret->ai_addr, ret->ai_addrlen);
-			freeaddrinfo(ret);
-			return;
-		}
-		goto invalid;
+	// Try numeric IPv4/IPv6 first; fall back to DNS resolution.
+	if (inet_pton(_ss_family, host.c_str(), &sin.sin_addr) > 0) {
+		*this = Address(*(sockaddr *)&sin, sizeof(sockaddr_in));
+		return;
 	}
 
-	*this = Address(*(sockaddr *)&sin, sizeof(sockaddr_in));
-	return;
-invalid:
+	addrinfo hints;
+	bzero(&hints, sizeof hints);
+	hints.ai_family = _ss_family;
+
+	addrinfo *ret = NULL;
+	if (getaddrinfo(host.c_str(), to_string(port).c_str(), &hints, &ret) == 0) {
+		*this = Address(*ret->ai_addr, ret->ai_addrlen);
+		freeaddrinfo(ret);
+		return;
+	}
+
 	_good = false;
 }
 

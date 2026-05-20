@@ -1,5 +1,5 @@
-#ifndef __LEXER_H__
-#define __LEXER_H__
+#ifndef SERVIO_LEXER_HPP
+#define SERVIO_LEXER_HPP
 
 #include <math.h>
 

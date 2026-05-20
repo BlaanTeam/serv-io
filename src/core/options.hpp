@@ -1,5 +1,5 @@
-#ifndef __CMDLINE_OPTIONS_H__
-#define __CMDLINE_OPTIONS_H__
+#ifndef SERVIO_OPTIONS_HPP
+#define SERVIO_OPTIONS_HPP
 
 #include <libgen.h>
 #include <sys/stat.h>

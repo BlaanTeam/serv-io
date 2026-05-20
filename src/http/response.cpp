@@ -88,7 +88,6 @@ Response::~Response() {
 }
 
 void Response::init() {
-	// !INFO: for security reason we should hide this header in some cases !
 	addHeader("Server", NAME "/" VERSION);
 	addHeader("Date", getUTCDate());
 	addHeader("Connection", _keepAlive ? "keep-alive" : "close");
@@ -388,7 +387,7 @@ void Response::sendChunkedBody(const sockfd &fd) {
 }
 
 void Response::setupRangedBody() {
-	RangeSpecifier range = _range.getRangeSpecifiers()[0];
+	RangeSpecifier range = _range.specifiers()[0];
 	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream);
 
 	if (_fileFd >= 0)
@@ -410,18 +409,32 @@ void Response::setupRangedBody() {
 }
 
 void Response::sendRangedBody(const sockfd &fd) {
-	RangeSpecifier range = _range.getRangeSpecifiers()[0];
+	RangeSpecifier range = _range.specifiers()[0];
 	const size_t   fileSize = (_fileFd >= 0) ? (size_t)_fileLen : getFileSize(_stream);
 
-	range.rangeEnd = min(range.rangeEnd, fileSize);
+	// Normalize the range against the file size so the offsets we hand to
+	// sendfile() / seekg() are always within [0, fileSize).
+	size_t start, length;
+	if (range.type == NOL) {
+		start  = range.rangeStart;
+		length = (fileSize > start) ? (fileSize - start) : 0;
+	} else if (range.type == NOF) {
+		const size_t suffix = (range.rangeEnd < fileSize) ? range.rangeEnd : fileSize;
+		start  = fileSize - suffix;
+		length = suffix;
+	} else {
+		start  = range.rangeStart;
+		const size_t end = (range.rangeEnd < fileSize) ? range.rangeEnd : (fileSize ? fileSize - 1 : 0);
+		length = (end >= start) ? (end - start + 1) : 0;
+	}
 
 	if (_lengthState == INIT_LENGTH) {
 		if (_fileFd >= 0) {
-			_filePos = (off_t)range.rangeStart;
-			_length = range.getContentLength(fileSize);
+			_filePos = (off_t)start;
+			_length  = (int)length;
 		} else {
-			range.setupSeek(_stream);
-			_length = range.getContentLength(_stream);
+			_stream->seekg(start);
+			_length  = (int)length;
 		}
 		_lengthState = ONGOING_LENGTH;
 	}
@@ -494,7 +507,6 @@ bool Response::setupCGIBody() {
 		sscanf(status.c_str(), "%hd %[^\n]1000s", &_statusCode, buff);
 		_isCustomStatusCode = true;
 		_statusStringCode = buff;
-		// ? INFO: we can remove Status from headers cuz it useless !!
 	}
 	addHeader("Content-Type", contentType);
 	init();
@@ -504,7 +516,7 @@ bool Response::setupCGIBody() {
 void Response::sendCGIBody(const sockfd &fd) {
 	char buff[(1 << 10)];
 	int  nbyte = read(_fd, buff, (1 << 10));
-	if (nbyte <= 0) { // TODO: check content-length also
+	if (nbyte <= 0) {
 		setState(RES_DONE);
 		close(_fd);
 	} else
@@ -514,7 +526,7 @@ void Response::sendCGIBody(const sockfd &fd) {
 void Response::extractRange(Request &req) {
 	_type = LENGTHED_RES;
 	_range = req.getRange();
-	if (_range.valid())
+	if (!_range.empty())
 		_type = RANGED_RES;
 }
 
@@ -531,37 +543,28 @@ bool Response::setupUploadBody() {
 	if (!_req->match(REQ_DONE))
 		return false;
 
-	// INFO: we can return interanl error in case of error(lazy)!
-
 	map<int, BodyFile> &bodyFiles = _req->getBodyFiles();
-	map<string, bool>   fileStatus;
+	map<string, bool>   uploaded;  // filename -> success
 
-	string filename;
-	{
-		map<int, BodyFile>::iterator it = bodyFiles.begin();
-		while (it != bodyFiles.end()) {
-			string oldPath = it->second.getFilename();
-			filename = it->second.extractFilename();
-			if (filename.empty())
-				filename = oldPath;
-			string newPath = joinPath(_location->getUploadStore(), filename);
-			bool   failed = false;
-			if (!rename(oldPath.c_str(), newPath.c_str()))
-				failed = true;
-			fileStatus[filename] = failed;
-			it++;
-		}
+	for (map<int, BodyFile>::iterator it = bodyFiles.begin(); it != bodyFiles.end(); ++it) {
+		BodyFile &part = it->second;
+		string    filename = part.clientFilename();
+		if (filename.empty())
+			filename = part.tmpPath();
+
+		const string newPath = joinPath(_location->getUploadStore(), filename);
+		const bool   ok = (rename(part.tmpPath().c_str(), newPath.c_str()) == 0);
+		uploaded[filename] = ok;
 	}
-	_stream = new stringstream;
-	_stream->write("<h1>Upload Succeffuly</h1>", 20);
-	map<string, bool>::iterator it = fileStatus.begin();
-	while (it != fileStatus.end()) {
-		(*_stream) << "<br/><span>" << it->first << " -- " << (it->second ? "Uploaded" : "Not Uploaded !") << "</span>" << endl;
-		it++;
-	}
+
+	stringstream *html = new stringstream;
+	*html << "<h1>Upload Successful</h1>";
+	for (map<string, bool>::iterator it = uploaded.begin(); it != uploaded.end(); ++it)
+		*html << "<br/><span>" << it->first << " -- "
+		      << (it->second ? "Uploaded" : "Not Uploaded") << "</span>\n";
+	_stream = html;
 
 	addHeader("Content-Length", to_string(getFileSize(_stream)));
-
 	return true;
 }
 

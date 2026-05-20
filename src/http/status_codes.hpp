@@ -1,5 +1,5 @@
-#ifndef __HTTP_CODES_H__
-#define __HTTP_CODES_H__
+#ifndef SERVIO_STATUS_CODES_HPP
+#define SERVIO_STATUS_CODES_HPP
 
 #include <dirent.h>
 #include <math.h>

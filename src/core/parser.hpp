@@ -1,5 +1,5 @@
-#ifndef __PARSER_H__
-#define __PARSER_H__
+#ifndef SERVIO_PARSER_HPP
+#define SERVIO_PARSER_HPP
 
 #include "ast.hpp"
 #include "status_codes.hpp"

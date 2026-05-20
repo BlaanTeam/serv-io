@@ -1,33 +1,33 @@
 #include "helpers.hpp"
 
-pair<bool, string> normpath(const string &path, const char sep) {
+servio::Option<string> normpath(const string &path, const char sep) {
+	if (path.empty() || path[0] != sep)
+		return servio::None<string>();
+
 	deque<string> components;
 	stringstream  ss(path);
 	string        component;
 
-	if (path[0] != sep)
-		return make_pair(false, "");
-
-	getline(ss, component, sep);  // skip empty component !!
+	getline(ss, component, sep);  // skip leading empty component
 	while (getline(ss, component, sep)) {
-		if (component == ".")
-			continue;
-		else if (component == "..") {
+		if (component == ".") continue;
+		if (component == "..") {
 			if (components.empty())
-				return make_pair(false, "");
+				return servio::None<string>();
 			components.pop_back();
-		} else
-			components.push_back(component);
+			continue;
+		}
+		components.push_back(component);
 	}
-	string tmp = "/";
-	for (size_t idx = 0; idx < components.size(); idx++) {
-		if (idx != 0)
-			tmp += "/";
-		tmp += components[idx];
+
+	string out = "/";
+	for (size_t i = 0; i < components.size(); ++i) {
+		if (i) out += "/";
+		out += components[i];
 	}
-	if (path.length() && path[path.length() - 1] == '/')
-		tmp = joinPath(tmp, "/");
-	return make_pair(true, tmp);
+	if (path[path.length() - 1] == '/')
+		out = joinPath(out, "/");
+	return servio::Some(out);
 }
 
 bool iequalString(const string &s1, const string &s2) {

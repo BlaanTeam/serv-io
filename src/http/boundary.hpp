@@ -1,5 +1,5 @@
-#ifndef __BOUNDARY_H__
-#define __BOUNDARY_H__
+#ifndef SERVIO_BOUNDARY_HPP
+#define SERVIO_BOUNDARY_HPP
 
 #define MULTIPART_FORM_DATA_STRING "multipart/form-data"
 #define BOUNDARY_STRING "boundary"
@@ -7,23 +7,26 @@
 #include <string>
 
 #include "../utility/helpers.hpp"
+#include "../utility/result.hpp"
 
 using namespace std;
 
-// Parses a Content-Type header value of the form
-//   multipart/form-data; boundary=<value>
-// and stores the boundary, leaving a flag that tells the body parser whether
-// multipart parsing should be engaged.
+// Parses a Content-Type header of the form
+//     multipart/form-data; boundary=<value>
+// Exposed as a Rust-style `Result` so callers must handle the parse error
+// explicitly instead of consulting a `.valid()` flag.
 class Boundary {
-	bool   _valid;
-	string _value;
-
    public:
-	Boundary();
-	Boundary(const string &headerValue);
+	static servio::Result<Boundary, string> parse(const string &headerValue);
 
-	bool          valid() const;
+	Boundary();                              // empty boundary, useful as a sentinel
+	explicit Boundary(const string &value);  // build from an already-extracted value
+
 	const string &value() const;
+	bool          empty() const;
+
+   private:
+	string _value;
 };
 
 #endif

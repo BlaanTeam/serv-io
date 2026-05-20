@@ -1,5 +1,5 @@
-#ifndef __CLIENT_H__
-#define __CLIENT_H__
+#ifndef SERVIO_CLIENT_HPP
+#define SERVIO_CLIENT_HPP
 
 #include <unistd.h>
 
