@@ -1,88 +1,80 @@
-
 #include "socket.hpp"
 
-static void *getAddr(struct sockaddr *sa) {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in *)sa)->sin_addr);
-	}
+#include <cerrno>
+#include <cstring>
 
+using servio::Result;
+using servio::Unit;
+
+static void *getAddr(struct sockaddr *sa) {
+	if (sa->sa_family == AF_INET)
+		return &(((struct sockaddr_in *)sa)->sin_addr);
 	return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
 
-// Address
+// ----------------------------------------------------------------- Address --
 
-Address::Address() : _good(true) {}
+Address::Address() : _port(0), _ss_family(AF_INET) {}
 
-Address::Address(const sockfd &fd) : _good(true) {
+Address::Address(const sockfd &fd) : _port(0), _ss_family(AF_INET) {
 	sockaddr  sa;
 	socklen_t len = sizeof(sockaddr_storage);
-
-	getsockname(fd, &sa, &len);
-	*this = Address(sa, len);
+	if (getsockname(fd, &sa, &len) == 0)
+		*this = Address(sa, len);
 }
 
-Address::Address(const string &host, const int &port) : _host(host), _port(port), _ss_family(AF_INET), _good(true) {
-	if (_port < 0 || port >= (1 << 16)) {
-		_good = false;
-		return;
-	}
-
-	sockaddr_in sin;
-	bzero(&sin, sizeof sin);
-	sin.sin_family = _ss_family;
-	sin.sin_port = htons(_port);
-
-	// Try numeric IPv4/IPv6 first; fall back to DNS resolution.
-	if (inet_pton(_ss_family, host.c_str(), &sin.sin_addr) > 0) {
-		*this = Address(*(sockaddr *)&sin, sizeof(sockaddr_in));
-		return;
-	}
-
-	addrinfo hints;
-	bzero(&hints, sizeof hints);
-	hints.ai_family = _ss_family;
-
-	addrinfo *ret = NULL;
-	if (getaddrinfo(host.c_str(), to_string(port).c_str(), &hints, &ret) == 0) {
-		*this = Address(*ret->ai_addr, ret->ai_addrlen);
-		freeaddrinfo(ret);
-		return;
-	}
-
-	_good = false;
-}
-
-Address::Address(sockaddr sa, const socklen_t &len) : _good(true) {
-	char buff[INET6_ADDRSTRLEN];
-
+Address::Address(const sockaddr &sa, const socklen_t &len) : _port(0) {
+	char buff[INET6_ADDRSTRLEN] = {0};
 	_ss_family = sa.sa_family;
-
-	inet_ntop(sa.sa_family, (const sockaddr *)getAddr(&sa), buff, len);
-
+	inet_ntop(sa.sa_family, getAddr(const_cast<sockaddr *>(&sa)), buff, len);
 	_host = string(buff);
-	_port = ntohs(((sockaddr_in *)&sa)->sin_port);
+	_port = ntohs(((const sockaddr_in *)&sa)->sin_port);
 }
 
 Address::~Address() {}
 
-ostream &operator<<(ostream &stream, const Address &addr) {
-	stream << addr.getHost() << ":" << addr.getPort();
-	return stream;
+Result<Address, string> Address::parse(const string &host, int port) {
+	typedef Result<Address, string> R;
+
+	if (port < 0 || port >= (1 << 16))
+		return R::err("port out of range: " + to_string(port));
+
+	sockaddr_in sin;
+	bzero(&sin, sizeof sin);
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(port);
+
+	// Try numeric IPv4/IPv6 first; fall back to DNS resolution.
+	if (inet_pton(AF_INET, host.c_str(), &sin.sin_addr) > 0)
+		return R::ok(Address(*(sockaddr *)&sin, sizeof(sockaddr_in)));
+
+	addrinfo hints;
+	bzero(&hints, sizeof hints);
+	hints.ai_family = AF_INET;
+
+	addrinfo *info = NULL;
+	const int rc = getaddrinfo(host.c_str(), to_string(port).c_str(), &hints, &info);
+	if (rc != 0 || info == NULL)
+		return R::err("could not resolve `" + host + "`: " + gai_strerror(rc));
+
+	Address out(*info->ai_addr, info->ai_addrlen);
+	freeaddrinfo(info);
+	return R::ok(out);
 }
 
-// Address Setters
+ostream &operator<<(ostream &stream, const Address &addr) {
+	return stream << addr.getHost() << ":" << addr.getPort();
+}
 
 void Address::setHost(const string &host) { _host = host; }
-void Address::setPort(const short &port) { _port = port; }
+void Address::setPort(const short &port)  { _port = port; }
 
-// Address Getters
-string   Address::getHost(void) const { return _host; }
-int      Address::getPort(void) const { return _port; }
+string Address::getHost(void) const { return _host; }
+int    Address::getPort(void) const { return _port; }
+
 sockaddr Address::getSockAddr(void) const {
 	sockaddr sa;
-
 	bzero(&sa, sizeof(sockaddr));
-
 	sa.sa_family = _ss_family;
 	sa.sa_len = getSockLen();
 
@@ -92,83 +84,81 @@ sockaddr Address::getSockAddr(void) const {
 		((sockaddr_in6 *)&sa)->sin6_port = htons(_port);
 
 	inet_pton(_ss_family, _host.c_str(), getAddr(&sa));
-
 	return sa;
 }
 
-socklen_t Address::getSockLen(void) const { return _ss_family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6); }
-
-bool Address::good() const {
-	return _good;
+socklen_t Address::getSockLen(void) const {
+	return _ss_family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
 }
 
-// Address operator overloading
-
 bool Address::operator<(const Address &rhs) const {
-	return lexicographical_compare(_host.begin(), _host.end(), rhs._host.begin(), rhs._host.end()) || _port < rhs._port;
+	return lexicographical_compare(_host.begin(), _host.end(),
+	                               rhs._host.begin(), rhs._host.end())
+	    || _port < rhs._port;
 }
 
 bool Address::operator==(const Address &rhs) const {
 	return (_host == rhs._host || _host == "0.0.0.0") && _port == rhs._port;
 }
 
-// Socket
-Socket::Socket(int domain, int type, int protocol) {
-	good = true;
-	sock_fd = ::socket(domain, type, protocol);
-	if (sock_fd == -1)
-		good = false;
+// ------------------------------------------------------------------ Socket --
 
-	int optval = 1;
-	setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+Socket::Socket() : _fd(-1) {}
+Socket::Socket(sockfd fd) : _fd(fd) {}
+
+Socket::~Socket() {}  // sockets are deliberately copyable for vector<Socket> use; no implicit close
+
+sockfd Socket::getSockFd(void) const { return _fd; }
+
+Result<Socket, string> Socket::create(int domain, int type, int proto) {
+	typedef Result<Socket, string> R;
+
+	const sockfd fd = ::socket(domain, type, proto);
+	if (fd == -1)
+		return R::err(string("socket(2): ") + strerror(errno));
+
+	const int reuse = 1;
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+	return R::ok(Socket(fd));
 }
 
-bool   Socket::isGood() const { return good; }
-sockfd Socket::getSockFd(void) const {
-	return sock_fd;
+Result<Unit, string> Socket::bind(const Address &addr) {
+	const sockaddr  sa = addr.getSockAddr();
+	const socklen_t len = addr.getSockLen();
+	if (::bind(_fd, &sa, len) != 0)
+		return Result<Unit, string>::err(string("bind(2): ") + strerror(errno));
+	return Result<Unit, string>::ok(Unit());
 }
 
-Socket::~Socket() {}
-
-void Socket::bind(const Address &addr) {
-	sockaddr sa = addr.getSockAddr();
-
-	good = true;
-
-	if (::bind(sock_fd, &sa, addr.getSockLen()) != 0) {
-		good = false;
-	}
+Result<Unit, string> Socket::listen(int backlog) {
+	if (::listen(_fd, backlog) != 0)
+		return Result<Unit, string>::err(string("listen(2): ") + strerror(errno));
+	return Result<Unit, string>::ok(Unit());
 }
 
-void Socket::listen(int backlog) {
-	good = true;
-	if (::listen(sock_fd, backlog) != 0)
-		good = false;
-}
+Result<pair<sockfd, Address>, string> Socket::accept() {
+	typedef Result<pair<sockfd, Address>, string> R;
 
-pair<int, Address> Socket::accept(void) {
 	sockaddr  sa;
-	socklen_t sa_len;
+	socklen_t sa_len = sizeof(sa);
 
-	good = true;
-	sockfd new_conn = ::accept(sock_fd, &sa, &sa_len);
-	if (new_conn != 0)
-		good = false;
+	const sockfd peer = ::accept(_fd, &sa, &sa_len);
+	if (peer == -1)
+		return R::err(string("accept(2): ") + strerror(errno));
 
-	return make_pair(new_conn, Address(sa, sa_len));
+	return R::ok(make_pair(peer, Address(sa, sa_len)));
 }
 
-PollFd::PollFd() {
-}
+// ------------------------------------------------------------------ PollFd --
+
+PollFd::PollFd() {}
 
 class PollFd::FindPollFd {
 	sockfd _fd;
 
    public:
-	FindPollFd(const sockfd &fd) : _fd(fd){};
-	bool operator()(const pollfd &pfd) {
-		return pfd.fd == _fd;
-	}
+	FindPollFd(const sockfd &fd) : _fd(fd) {}
+	bool operator()(const pollfd &pfd) { return pfd.fd == _fd; }
 };
 
 void PollFd::add(const sockfd &fd, const short &events) {
@@ -177,11 +167,9 @@ void PollFd::add(const sockfd &fd, const short &events) {
 }
 
 void PollFd::remove(const sockfd &fd) {
-	vector<pollfd>::iterator it = get(fd);
-
-	if (it != end()) {
+	iterator it = get(fd);
+	if (it != end())
 		erase(it);
-	}
 }
 
 PollFd::iterator PollFd::get(const sockfd &fd) {

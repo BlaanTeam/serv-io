@@ -501,11 +501,12 @@ pair<bool, MainContext<Type> *> Parser::transfer(MainContext<> *tree) {
 				host = addr;
 			}
 
-			typ.addr = new Address(host, port);
-
-			if (!typ.addr->good()) {
-				return _serr = "invalid adress: " + addr, make_pair(false, ret);
+			servio::Result<Address, string> parsed = Address::parse(host, port);
+			if (parsed.isErr()) {
+				_serr = "invalid address: " + addr + " (" + parsed.unwrapErr() + ")";
+				return make_pair(false, ret);
 			}
+			typ.addr = new Address(parsed.unwrap());
 		}
 
 		else if (key == "server_name") {

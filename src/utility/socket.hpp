@@ -14,64 +14,67 @@
 #include <utility>
 #include <vector>
 
+#include "result.hpp"
+
 typedef int sockfd;
 
-/*
-    The backlog argument defines the maximum length to which the queue of pending connections for sockfd may grow.
-*/
+// `listen(2)` backlog used by `Socket::listen()`.
 #define BACKLOG 10
 
 using namespace std;
 
+// Network address (host + port). Construction never fails — fallible input
+// goes through the static `parse()` factory and surfaces as a Result.
 class Address {
-	string       _host;
-	unsigned int _port;
-	short        _ss_family;
-
-	bool _good;
-
    public:
-	Address();
-	Address(const sockfd &fd);
-	Address(const string &host, const int &port);
-	Address(sockaddr addr, const socklen_t &len);
+	static servio::Result<Address, string> parse(const string &host, int port);
 
-	// setters
+	Address();                                       // empty placeholder
+	Address(const sockfd &fd);                       // from an accepted fd
+	Address(const sockaddr &addr, const socklen_t &len);
+
+	// Operator overloads + getters/setters
+	bool operator<(const Address &rhs)  const;
+	bool operator==(const Address &rhs) const;
+
 	void setHost(const string &host);
 	void setPort(const short &port);
 
-	// operator overloading
-	bool operator<(const Address &rhs) const;
-
-	bool operator==(const Address &rhs) const;
-
-	// getters
 	string    getHost(void) const;
 	int       getPort(void) const;
 	sockaddr  getSockAddr(void) const;
 	socklen_t getSockLen(void) const;
-	bool      good() const;
 
 	~Address();
+
+   private:
+	string       _host;
+	unsigned int _port;
+	short        _ss_family;
 };
 
 ostream &operator<<(ostream &stream, const Address &addr);
 
+// Listening / accepted TCP socket. Construction goes through `create()`, so
+// callers handle the socket(2) failure case explicitly via Result.
 class Socket {
-	sockfd sock_fd;
-	bool   good;
-
    public:
-	Socket(int domain = AF_INET, int type = SOCK_STREAM, int protocol = 0);
-	void               bind(const Address &addr);
-	void               listen(int backlog = BACKLOG);
-	pair<int, Address> accept();
+	static servio::Result<Socket, string> create(int domain = AF_INET,
+	                                             int type   = SOCK_STREAM,
+	                                             int proto  = 0);
 
-	// getters
-	bool   isGood() const;
+	servio::Result<servio::Unit, string>          bind(const Address &addr);
+	servio::Result<servio::Unit, string>          listen(int backlog = BACKLOG);
+	servio::Result<pair<sockfd, Address>, string> accept();
+
 	sockfd getSockFd(void) const;
 
+	Socket();                       // empty placeholder — Result needs default-constructibility
+	explicit Socket(sockfd fd);
 	~Socket();
+
+   private:
+	sockfd _fd;
 };
 
 class PollFd : public vector<pollfd> {
@@ -79,10 +82,10 @@ class PollFd : public vector<pollfd> {
 
    public:
 	PollFd();
+
 	void add(const sockfd &fd, const short &events);
 	void remove(const sockfd &fd);
-
-	int poll(const int &timeout);
+	int  poll(const int &timeout);
 
 	iterator get(const sockfd &fd);
 };
