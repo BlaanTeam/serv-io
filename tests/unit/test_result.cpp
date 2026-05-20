@@ -107,3 +107,88 @@ TEST(Result, okAndErrProjectToOption) {
 	ASSERT_TRUE(e.err().isSome());
 	ASSERT_STREQ(e.err().unwrap(), "bad");
 }
+
+// ------------------------------------------------------------- match() -----
+
+namespace {
+
+struct CaptureValue {
+	int *dst;
+	CaptureValue(int *p) : dst(p) {}
+	void operator()(const int &v) const { *dst = v; }
+};
+
+struct CaptureNone {
+	bool *flag;
+	CaptureNone(bool *p) : flag(p) {}
+	void operator()() const { *flag = true; }
+};
+
+struct CaptureErr {
+	string *dst;
+	CaptureErr(string *p) : dst(p) {}
+	void operator()(const string &e) const { *dst = e; }
+};
+
+struct ReturnLen {
+	int operator()(const string &s) const { return (int)s.size(); }
+};
+
+struct ReturnZero {
+	int operator()() const { return 0; }
+};
+
+}  // namespace
+
+TEST(Option, matchInvokesSomeBranch) {
+	int  captured = -1;
+	bool wentNone = false;
+	Some(42).match(CaptureValue(&captured), CaptureNone(&wentNone));
+	ASSERT_EQ(captured, 42);
+	ASSERT_FALSE(wentNone);
+}
+
+TEST(Option, matchInvokesNoneBranch) {
+	int  captured = -1;
+	bool wentNone = false;
+	None<int>().match(CaptureValue(&captured), CaptureNone(&wentNone));
+	ASSERT_TRUE(wentNone);
+	ASSERT_EQ(captured, -1);
+}
+
+TEST(Option, matchToReturnsValue) {
+	int len = Some(string("hello")).matchTo<int>(ReturnLen(), ReturnZero());
+	ASSERT_EQ(len, 5);
+	int zero = None<string>().matchTo<int>(ReturnLen(), ReturnZero());
+	ASSERT_EQ(zero, 0);
+}
+
+TEST(Result, matchDispatchesOnDiscriminant) {
+	int    value = -1;
+	string error;
+	Result<int, string>::ok(7).match(CaptureValue(&value), CaptureErr(&error));
+	ASSERT_EQ(value, 7);
+	ASSERT_TRUE(error.empty());
+
+	value = -1;
+	Result<int, string>::err("boom").match(CaptureValue(&value), CaptureErr(&error));
+	ASSERT_STREQ(error, "boom");
+	ASSERT_EQ(value, -1);
+}
+
+// ------------------------------------------------------------------ Unit ---
+
+TEST(Unit, equalsItself) {
+	servio::Unit a, b;
+	ASSERT_TRUE(a == b);
+	ASSERT_FALSE(a != b);
+}
+
+TEST(Unit, fitsInsideResult) {
+	Result<servio::Unit, string> ok = Result<servio::Unit, string>::ok(servio::Unit());
+	ASSERT_TRUE(ok.isOk());
+
+	Result<servio::Unit, string> bad = Result<servio::Unit, string>::err("nope");
+	ASSERT_TRUE(bad.isErr());
+	ASSERT_STREQ(bad.unwrapErr(), "nope");
+}

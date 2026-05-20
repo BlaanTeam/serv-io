@@ -28,6 +28,15 @@
 
 namespace servio {
 
+// "No value" success type for `Result<Unit, E>` — the C++98 stand-in for
+// Rust's `()` (unit type). Always equal, default-constructible, copyable.
+struct Unit {
+	bool operator==(const Unit &) const { return true; }
+	bool operator!=(const Unit &) const { return false; }
+};
+
+inline std::ostream &operator<<(std::ostream &os, const Unit &) { return os << "()"; }
+
 // ----------------------------------------------------------- Option<T> -----
 
 template <typename T>
@@ -62,6 +71,22 @@ class Option {
 	Option<U> andThen(F f) const {
 		if (!_has) return Option<U>();
 		return f(_value);
+	}
+
+	// Rust-style `match`. Pass two callables; the right one is invoked for
+	// the discriminant. Useful for terminal sites where you want to fold the
+	// Option down to a side effect (logging, dispatch) without branching by
+	// hand. C++98 has no lambdas; use a functor with `operator()`.
+	template <typename OnSome, typename OnNone>
+	void match(OnSome on_some, OnNone on_none) const {
+		if (_has) on_some(_value);
+		else      on_none();
+	}
+
+	// Value-returning variant. The two callables must both return R.
+	template <typename R, typename OnSome, typename OnNone>
+	R matchTo(OnSome on_some, OnNone on_none) const {
+		return _has ? on_some(_value) : on_none();
 	}
 
 	// Factory functions (constructor disambiguation in C++98 is annoying).
@@ -140,6 +165,21 @@ class Result {
 	Result<U, E> andThen(F f) const {
 		if (!_ok) return Result<U, E>::err(_error);
 		return f(_value);
+	}
+
+	// Rust-style `match`. Pass two callables — the Ok branch receives the
+	// success value, the Err branch receives the error. C++98 has no
+	// lambdas, so use a functor with `operator()(const T&)` /
+	// `operator()(const E&)`. See `tests/unit/test_result.cpp` for examples.
+	template <typename OnOk, typename OnErr>
+	void match(OnOk on_ok, OnErr on_err) const {
+		if (_ok) on_ok(_value);
+		else     on_err(_error);
+	}
+
+	template <typename R, typename OnOk, typename OnErr>
+	R matchTo(OnOk on_ok, OnErr on_err) const {
+		return _ok ? on_ok(_value) : on_err(_error);
 	}
 
 	// Factory functions.
